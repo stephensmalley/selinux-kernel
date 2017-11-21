@@ -333,9 +333,10 @@ static ssize_t sel_write_unshare(struct file *file, const char __user *buf,
 {
 	struct selinux_fs_info *fsi = file_inode(file)->i_sb->s_fs_info;
 	struct selinux_ns *ns = fsi->ns;
+	struct cred *cred;
+	struct task_security_struct *tsec;
 	char *page;
 	ssize_t length;
-	bool set;
 	int rc;
 
 	if (ns != current_selinux_ns)
@@ -358,30 +359,32 @@ static ssize_t sel_write_unshare(struct file *file, const char __user *buf,
 	if (IS_ERR(page))
 		return PTR_ERR(page);
 
-	length = -EINVAL;
-	if (kstrtobool(page, &set))
+	/* strip any trailing newline */
+	if (page[strlen(page) - 1] == '\n')
+		page[strlen(page) - 1] = 0;
+
+	/* TODO: check for uniqueness! */
+	if (!strcmp(SELINUX_NS_INIT_NAME, page)) {
+		length = -EINVAL;
 		goto out;
-
-	if (set) {
-		struct cred *cred = prepare_creds();
-		struct task_security_struct *tsec;
-
-		if (!cred) {
-			length = -ENOMEM;
-			goto out;
-		}
-		tsec = cred->security;
-		if (selinux_ns_create(ns, &tsec->ns)) {
-			abort_creds(cred);
-			length = -ENOMEM;
-			goto out;
-		}
-		tsec->osid = tsec->sid = SECINITSID_KERNEL;
-		tsec->exec_sid = tsec->create_sid = tsec->keycreate_sid =
-			tsec->sockcreate_sid = SECSID_NULL;
-		tsec->parent_cred = get_current_cred();
-		commit_creds(cred);
 	}
+
+	cred = prepare_creds();
+	if (!cred) {
+		length = -ENOMEM;
+		goto out;
+	}
+	tsec = cred->security;
+	if (selinux_ns_create(ns, &tsec->ns, page)) {
+		abort_creds(cred);
+		length = -ENOMEM;
+		goto out;
+	}
+	tsec->osid = tsec->sid = SECINITSID_KERNEL;
+	tsec->exec_sid = tsec->create_sid = tsec->keycreate_sid =
+		tsec->sockcreate_sid = SECSID_NULL;
+	tsec->parent_cred = get_current_cred();
+	commit_creds(cred);
 
 	length = count;
 out:
@@ -389,8 +392,22 @@ out:
 	return length;
 }
 
+static ssize_t sel_read_unshare(struct file *file, char __user *buf,
+				size_t count, loff_t *ppos)
+{
+	struct selinux_fs_info *fsi = file_inode(file)->i_sb->s_fs_info;
+	struct selinux_ns *ns = fsi->ns;
+	char *name = ns->name;
+
+	if (ns != current_selinux_ns)
+		return -EPERM;
+
+	return simple_read_from_buffer(buf, count, ppos, name, strlen(name));
+}
+
 static const struct file_operations sel_unshare_ops = {
 	.write		= sel_write_unshare,
+	.read		= sel_read_unshare,
 	.llseek		= generic_file_llseek,
 };
 
@@ -2009,7 +2026,7 @@ static int sel_fill_super(struct super_block *sb, void *data, int silent)
 		[SEL_POLICY] = {"policy", &sel_policy_ops, S_IRUGO},
 		[SEL_VALIDATE_TRANS] = {"validatetrans", &sel_transition_ops,
 					S_IWUGO},
-		[SEL_UNSHARE] = {"unshare", &sel_unshare_ops, 0222},
+		[SEL_UNSHARE] = {"unshare", &sel_unshare_ops, 0666},
 		/* last one */ {""}
 	};
 

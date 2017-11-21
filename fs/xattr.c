@@ -157,6 +157,7 @@ EXPORT_SYMBOL(__vfs_setxattr);
  *
  *  @dentry - object to perform setxattr on
  *  @name - xattr name to set
+ *  @nsname - namespaced xattr name, use instead of @name if set
  *  @value - value to set @name to
  *  @size - size of @value
  *  @flags - flags to pass into filesystem operations
@@ -168,7 +169,7 @@ EXPORT_SYMBOL(__vfs_setxattr);
  *  permission checks.
  */
 int __vfs_setxattr_noperm(struct dentry *dentry, const char *name,
-		const void *value, size_t size, int flags)
+		const char *nsname, const void *value, size_t size, int flags)
 {
 	struct inode *inode = dentry->d_inode;
 	int error = -EAGAIN;
@@ -178,7 +179,8 @@ int __vfs_setxattr_noperm(struct dentry *dentry, const char *name,
 	if (issec)
 		inode->i_flags &= ~S_NOSEC;
 	if (inode->i_opflags & IOP_XATTR) {
-		error = __vfs_setxattr(dentry, inode, name, value, size, flags);
+		error = __vfs_setxattr(dentry, inode, nsname?:name, value,
+					size, flags);
 		if (!error) {
 			fsnotify_xattr(dentry);
 			security_inode_post_setxattr(dentry, name, value,
@@ -211,6 +213,7 @@ vfs_setxattr(struct dentry *dentry, const char *name, const void *value,
 {
 	struct inode *inode = dentry->d_inode;
 	int error;
+	char *nsname = NULL;
 
 	error = xattr_permission(inode, name, MAY_WRITE);
 	if (error)
@@ -221,8 +224,11 @@ vfs_setxattr(struct dentry *dentry, const char *name, const void *value,
 	if (error)
 		goto out;
 
-	error = __vfs_setxattr_noperm(dentry, name, value, size, flags);
+	error = security_inode_translate_xattr_to_ns(name, &nsname);
+	if (error)
+		goto out;
 
+	error = __vfs_setxattr_noperm(dentry, name, nsname, value, size, flags);
 out:
 	inode_unlock(inode);
 	return error;

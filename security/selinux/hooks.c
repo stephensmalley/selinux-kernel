@@ -652,6 +652,16 @@ static int selinux_is_sblabel_mnt(struct super_block *sb)
 		  !strcmp(sb->s_type->name, "cgroup2")));
 }
 
+static char *current_xattr_suffix(void)
+{
+	return current_selinux_ns->xattr_name + XATTR_SECURITY_PREFIX_LEN;
+}
+
+static char *current_xattr_name(void)
+{
+	return current_selinux_ns->xattr_name;
+}
+
 static int sb_finish_set_opts(struct super_block *sb)
 {
 	struct superblock_security_struct *sbsec = superblock_security(sb);
@@ -660,6 +670,8 @@ static int sb_finish_set_opts(struct super_block *sb)
 	int rc = 0;
 
 	if (sbsec->behavior == SECURITY_FS_USE_XATTR) {
+		char *name;
+
 		/* Make sure that the xattr handler exists and that no
 		   error other than -ENODATA is returned by getxattr on
 		   the root directory.  -ENODATA is ok, as this may be
@@ -672,7 +684,9 @@ static int sb_finish_set_opts(struct super_block *sb)
 			goto out;
 		}
 
-		rc = __vfs_getxattr(root, root_inode, XATTR_NAME_SELINUX, NULL, 0);
+		name = current_xattr_name();
+
+		rc = __vfs_getxattr(root, root_inode, name, NULL, 0);
 		if (rc < 0 && rc != -ENODATA) {
 			if (rc == -EOPNOTSUPP)
 				printk(KERN_WARNING "SELinux: (dev %s, type "
@@ -1666,6 +1680,7 @@ static int inode_doinit_with_dentry(struct inode *inode,
 	char *context = NULL;
 	unsigned len = 0;
 	int rc = 0;
+	char *name;
 
 	if (isec->initialized == LABEL_INITIALIZED)
 		return 0;
@@ -1735,12 +1750,14 @@ static int inode_doinit_with_dentry(struct inode *inode,
 			goto out;
 		}
 		context[len] = '\0';
-		rc = __vfs_getxattr(dentry, inode, XATTR_NAME_SELINUX, context, len);
+
+		name = current_xattr_name();
+		rc = __vfs_getxattr(dentry, inode, name, context, len);
 		if (rc == -ERANGE) {
 			kfree(context);
 
 			/* Need a larger buffer.  Query for the right size. */
-			rc = __vfs_getxattr(dentry, inode, XATTR_NAME_SELINUX, NULL, 0);
+			rc = __vfs_getxattr(dentry, inode, name, NULL, 0);
 			if (rc < 0) {
 				dput(dentry);
 				goto out;
@@ -1753,7 +1770,7 @@ static int inode_doinit_with_dentry(struct inode *inode,
 				goto out;
 			}
 			context[len] = '\0';
-			rc = __vfs_getxattr(dentry, inode, XATTR_NAME_SELINUX, context, len);
+			rc = __vfs_getxattr(dentry, inode, name, context, len);
 		}
 		dput(dentry);
 		if (rc < 0) {
@@ -3189,7 +3206,7 @@ static int selinux_inode_init_security(struct inode *inode, struct inode *dir,
 		return -EOPNOTSUPP;
 
 	if (name)
-		*name = XATTR_SELINUX_SUFFIX;
+		*name = current_xattr_suffix();
 
 	if (value && len) {
 		rc = security_sid_to_context_force(current_selinux_ns, newsid,
@@ -3383,6 +3400,10 @@ static bool has_cap_mac_admin(bool audit)
 	return true;
 }
 
+/* TODO:
+ * - audit
+ * - handle raw namespaced xattrs
+ */
 static int selinux_inode_setxattr(struct dentry *dentry, const char *name,
 				  const void *value, size_t size, int flags)
 {
@@ -3394,6 +3415,11 @@ static int selinux_inode_setxattr(struct dentry *dentry, const char *name,
 	int rc = 0;
 
 	if (strcmp(name, XATTR_NAME_SELINUX)) {
+		/* No raw namespaced xattrs, yet */
+		if (!strncmp(name, XATTR_NAME_SELINUX,
+			     strlen(XATTR_NAME_SELINUX)))
+			return -EACCES;
+
 		rc = cap_inode_setxattr(dentry, name, value, size, flags);
 		if (rc)
 			return rc;
@@ -3652,6 +3678,13 @@ static int selinux_inode_copy_up_xattr(const char *name)
 	 * by selinux.
 	 */
 	return -EOPNOTSUPP;
+}
+
+static int selinux_inode_translate_xattr_to_ns(const char *name, char **tr)
+{
+	if(!strcmp(name, XATTR_NAME_SELINUX))
+		*tr = current_xattr_name();
+	return 0;
 }
 
 /* file security operations */
@@ -6711,10 +6744,11 @@ static int selinux_inode_notifysecctx(struct inode *inode, void *ctx, u32 ctxlen
 
 /*
  *	called with inode->i_mutex locked
+ *	TODO: namespace translation
  */
 static int selinux_inode_setsecctx(struct dentry *dentry, void *ctx, u32 ctxlen)
 {
-	return __vfs_setxattr_noperm(dentry, XATTR_NAME_SELINUX, ctx, ctxlen, 0);
+	return __vfs_setxattr_noperm(dentry, XATTR_NAME_SELINUX, NULL, ctx, ctxlen, 0);
 }
 
 static int selinux_inode_getsecctx(struct inode *inode, void **ctx, u32 *ctxlen)
@@ -7067,6 +7101,7 @@ static struct security_hook_list selinux_hooks[] __lsm_ro_after_init = {
 	LSM_HOOK_INIT(inode_getsecid, selinux_inode_getsecid),
 	LSM_HOOK_INIT(inode_copy_up, selinux_inode_copy_up),
 	LSM_HOOK_INIT(inode_copy_up_xattr, selinux_inode_copy_up_xattr),
+	LSM_HOOK_INIT(inode_translate_xattr_to_ns, selinux_inode_translate_xattr_to_ns),
 
 	LSM_HOOK_INIT(file_permission, selinux_file_permission),
 	LSM_HOOK_INIT(file_alloc_security, selinux_file_alloc_security),
@@ -7239,7 +7274,37 @@ static struct security_hook_list selinux_hooks[] __lsm_ro_after_init = {
 
 static void selinux_ns_free(struct work_struct *work);
 
-int selinux_ns_create(struct selinux_ns *parent, struct selinux_ns **ns)
+static int selinux_ns_create_name(struct selinux_ns *parent, struct selinux_ns *newns, const char *name)
+{
+	int rc = 0;
+
+	if (parent && parent->parent)
+		newns->name = kasprintf(GFP_KERNEL, "%s.%s", parent->name, name);
+	else
+		newns->name = kstrdup(name, GFP_KERNEL);
+
+	if (!newns->name)
+		rc = -ENOMEM;
+
+	return rc;
+}
+
+static int selinux_ns_create_xattr_name(struct selinux_ns *parent, struct selinux_ns *newns)
+{
+	int rc = 0;
+
+	if (!parent)
+		newns->xattr_name = kstrdup(XATTR_NAME_SELINUX, GFP_KERNEL);
+	else
+		newns->xattr_name = kasprintf(GFP_KERNEL, "%s.%s", XATTR_NAME_SELINUX, newns->name);
+
+	if (!newns->xattr_name)
+		rc = -ENOMEM;
+
+	return rc;
+}
+
+int selinux_ns_create(struct selinux_ns *parent, struct selinux_ns **ns, const char *name)
 {
 	struct selinux_ns *newns;
 	int rc;
@@ -7259,14 +7324,25 @@ int selinux_ns_create(struct selinux_ns *parent, struct selinux_ns **ns)
 	if (rc)
 		goto err;
 
+	rc = selinux_ns_create_name(parent, newns, name);
+	if (rc)
+		goto err_avc;
+
+	rc = selinux_ns_create_xattr_name(parent, newns);
+	if (rc)
+		goto err_avc;
+
 	if (parent)
 		newns->parent = get_selinux_ns(parent);
 
 	*ns = newns;
 	return 0;
+err_avc:
+	selinux_avc_free(newns->avc);
 err:
 	selinux_ss_free(newns->ss);
 	kfree(newns);
+	kfree(newns->name);
 	return rc;
 }
 
@@ -7279,6 +7355,8 @@ static void selinux_ns_free(struct work_struct *work)
 		parent = ns->parent;
 		selinux_ss_free(ns->ss);
 		selinux_avc_free(ns->avc);
+		kfree(ns->name);
+		kfree(ns->xattr_name);
 		kfree(ns);
 		ns = parent;
 	} while (ns && refcount_dec_and_test(&ns->count));
@@ -7303,7 +7381,7 @@ static __init int selinux_init(void)
 
 	printk(KERN_INFO "SELinux:  Initializing.\n");
 
-	if (selinux_ns_create(NULL, &init_selinux_ns))
+	if (selinux_ns_create(NULL, &init_selinux_ns, SELINUX_NS_INIT_NAME))
 		panic("SELinux: Could not create initial namespace\n");
 
 	enforcing_set(init_selinux_ns, selinux_enforcing_boot);

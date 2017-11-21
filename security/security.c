@@ -863,6 +863,12 @@ int security_inode_copy_up_xattr(const char *name)
 }
 EXPORT_SYMBOL(security_inode_copy_up_xattr);
 
+int security_inode_translate_xattr_to_ns(const char *name, char **tr)
+{
+	return call_int_hook(inode_translate_xattr_to_ns, 0, name, tr);
+}
+EXPORT_SYMBOL(security_inode_translate_xattr_to_ns);
+
 int security_file_permission(struct file *file, int mask)
 {
 	int ret;

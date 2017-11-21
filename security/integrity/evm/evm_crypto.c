@@ -320,7 +320,7 @@ int evm_update_evmxattr(struct dentry *dentry, const char *xattr_name,
 	if (rc == 0) {
 		xattr_data.type = EVM_XATTR_HMAC;
 		rc = __vfs_setxattr_noperm(dentry, XATTR_NAME_EVM,
-					   &xattr_data,
+					   NULL, &xattr_data,
 					   sizeof(xattr_data), 0);
 	} else if (rc == -ENODATA && (inode->i_opflags & IOP_XATTR)) {
 		rc = __vfs_removexattr(dentry, XATTR_NAME_EVM);

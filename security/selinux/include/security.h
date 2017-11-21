@@ -94,6 +94,9 @@ extern char *selinux_policycap_names[__POLICYDB_CAPABILITY_MAX];
 /* limitation of boundary depth  */
 #define POLICYDB_BOUNDS_MAXDEPTH	4
 
+/* Name of SELinux initial namespace */
+#define SELINUX_NS_INIT_NAME ""
+
 struct selinux_avc;
 struct selinux_ss;
 
@@ -110,9 +113,11 @@ struct selinux_ns {
 	struct selinux_avc *avc;
 	struct selinux_ss *ss;
 	struct selinux_ns *parent;
+	char *name;
+	char *xattr_name;
 };
 
-int selinux_ns_create(struct selinux_ns *parent, struct selinux_ns **ns);
+int selinux_ns_create(struct selinux_ns *parent, struct selinux_ns **ns, const char *name);
 void __put_selinux_ns(struct selinux_ns *ns);
 
 int selinux_ss_create(struct selinux_ss **ss);
