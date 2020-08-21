@@ -77,7 +77,7 @@ static void selnl_notify(int msgtype, void *data)
 	 * namespace if you want to receive them; otherwise,
 	 * just get updates via the SELinux status page.
 	 */
-	if (current_selinux_state != &init_selinux_state &&
+	if (current_selinux_state != init_selinux_state &&
 	    net_eq(current->nsproxy->net_ns, &init_net))
 		return;
 
