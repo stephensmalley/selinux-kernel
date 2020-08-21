@@ -79,7 +79,7 @@ static void selnl_notify(int msgtype, void *data)
 	 * notifications. Modern libselinux on modern kernels uses the
 	 * SELinux status page instead, which is per-namespace already.
 	 */
-	if (current_selinux_state != &init_selinux_state)
+	if (current_selinux_state != init_selinux_state)
 		return;
 
 	len = selnl_msglen(msgtype);

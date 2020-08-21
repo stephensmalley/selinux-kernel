@@ -91,7 +91,7 @@ static struct selinux_fs_info *selinux_fs_info_create(void)
 		return NULL;
 
 	fsi->last_ino = SEL_INO_NEXT - 1;
-	fsi->state = current_selinux_state;
+	fsi->state = get_selinux_state(current_selinux_state);
 	return fsi;
 }
 
@@ -100,6 +100,7 @@ static void selinux_fs_info_free(struct selinux_fs_info *fsi)
 	unsigned int i;
 
 	if (fsi) {
+		put_selinux_state(fsi->state);
 		for (i = 0; i < fsi->bool_num; i++)
 			kfree(fsi->bool_pending_names[i]);
 		kfree(fsi->bool_pending_names);
