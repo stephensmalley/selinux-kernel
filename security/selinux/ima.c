@@ -55,13 +55,12 @@ static char *selinux_ima_collect_state(struct selinux_state *state)
 	seq_buf_init(&s, buf, selinux_ima_config_len);
 
 	seq_buf_printf(&s, "initialized=%d;enforcing=%d;checkreqprot=%d;",
-		       selinux_initialized(&selinux_state),
-		       enforcing_enabled(&selinux_state),
-		       checkreqprot_get(&selinux_state));
+		       selinux_initialized(state), enforcing_enabled(state),
+		       checkreqprot_get(state));
 
 	for (i = 0; i < __POLICYDB_CAP_MAX; i++)
 		seq_buf_printf(&s, "%s=%d;", selinux_policycap_names[i],
-			       selinux_state.policycap[i]);
+			       state->policycap[i]);
 
 	WARN_ON(seq_buf_has_overflowed(&s));
 
