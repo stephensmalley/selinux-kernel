@@ -2229,7 +2229,7 @@ static void security_load_policycaps(struct selinux_state *state,
 static int security_preserve_bools(struct selinux_policy *oldpolicy,
 				struct selinux_policy *newpolicy);
 
-static void selinux_policy_free(struct selinux_policy *policy)
+void selinux_policy_free(struct selinux_policy *policy)
 {
 	if (!policy)
 		return;
@@ -2239,6 +2239,21 @@ static void selinux_policy_free(struct selinux_policy *policy)
 	policydb_destroy(&policy->policydb);
 	kfree(policy->sidtab);
 	kfree(policy);
+}
+
+void selinux_state_policy_free(struct selinux_state *state)
+{
+	struct selinux_policy *policy;
+
+	/*
+	 * This is only called from selinux_state_free() when the
+	 * refcount for the state drops to zero, i.e. there are no
+	 * remaining references to the state and hence no remaining
+	 * references to its policy.
+	 */
+	policy = rcu_dereference_protected(state->policy,
+					refcount_read(&state->count) == 0);
+	selinux_policy_free(policy);
 }
 
 static void selinux_policy_cond_free(struct selinux_policy *policy)
