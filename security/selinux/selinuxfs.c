@@ -150,6 +150,9 @@ static ssize_t sel_write_enforce(struct file *file, const char __user *buf,
 	int scan_value;
 	bool old_value, new_value;
 
+	if (state != current_selinux_state)
+		return -EPERM;
+
 	if (count >= PAGE_SIZE)
 		return -ENOMEM;
 
@@ -735,6 +738,9 @@ static ssize_t sel_write_load(struct file *file, const char __user *buf,
 	if (!count)
 		return -EINVAL;
 
+	if (fsi->state != current_selinux_state)
+		return -EPERM;
+
 	mutex_lock(&fsi->state->policy_mutex);
 	length = avc_has_perm(current_selinux_state,
 			      current_sid(), SECINITSID_SECURITY,
@@ -839,6 +845,9 @@ static ssize_t sel_write_checkreqprot(struct file *file, const char __user *buf,
 	ssize_t length;
 	unsigned int new_value;
 
+	if (fsi->state != current_selinux_state)
+		return -EPERM;
+
 	length = avc_has_perm(current_selinux_state,
 			      current_sid(), SECINITSID_SECURITY,
 			      SECCLASS_SECURITY, SECURITY__SETCHECKREQPROT,
@@ -894,6 +903,9 @@ static ssize_t sel_write_validatetrans(struct file *file,
 	u32 osid, nsid, tsid;
 	u16 tclass;
 	int rc;
+
+	if (state != current_selinux_state)
+		return -EPERM;
 
 	rc = avc_has_perm(current_selinux_state,
 			  current_sid(), SECINITSID_SECURITY,
@@ -982,9 +994,13 @@ static ssize_t (*const write_op[])(struct file *, char *, size_t) = {
 
 static ssize_t selinux_transaction_write(struct file *file, const char __user *buf, size_t size, loff_t *pos)
 {
+	struct selinux_fs_info *fsi = file_inode(file)->i_sb->s_fs_info;
 	ino_t ino = file_inode(file)->i_ino;
 	char *data;
 	ssize_t rv;
+
+	if (fsi->state != current_selinux_state)
+		return -EPERM;
 
 	if (ino >= ARRAY_SIZE(write_op) || !write_op[ino])
 		return -EINVAL;
@@ -1438,6 +1454,9 @@ static ssize_t sel_write_bool(struct file *filep, const char __user *buf,
 	unsigned index = file_inode(filep)->i_ino & SEL_INO_MASK;
 	const char *name = filep->f_path.dentry->d_name.name;
 
+	if (fsi->state != current_selinux_state)
+		return -EPERM;
+
 	if (count >= PAGE_SIZE)
 		return -ENOMEM;
 
@@ -1493,6 +1512,9 @@ static ssize_t sel_commit_bools_write(struct file *filep,
 	char *page = NULL;
 	ssize_t length;
 	int new_value;
+
+	if (fsi->state != current_selinux_state)
+		return -EPERM;
 
 	if (count >= PAGE_SIZE)
 		return -ENOMEM;
@@ -1618,6 +1640,9 @@ static ssize_t sel_write_avc_cache_threshold(struct file *file,
 	char *page;
 	ssize_t ret;
 	unsigned int new_value;
+
+	if (state != current_selinux_state)
+		return -EPERM;
 
 	ret = avc_has_perm(current_selinux_state,
 			   current_sid(), SECINITSID_SECURITY,
