@@ -82,19 +82,17 @@ struct selinux_fs_info {
 	struct super_block *sb;
 };
 
-static int selinux_fs_info_create(struct super_block *sb)
+static struct selinux_fs_info *selinux_fs_info_create(void)
 {
 	struct selinux_fs_info *fsi;
 
 	fsi = kzalloc_obj(*fsi);
 	if (!fsi)
-		return -ENOMEM;
+		return NULL;
 
 	fsi->last_ino = SEL_INO_NEXT - 1;
 	fsi->state = current_selinux_state;
-	fsi->sb = sb;
-	sb->s_fs_info = fsi;
-	return 0;
+	return fsi;
 }
 
 static void selinux_fs_info_free(struct selinux_fs_info *fsi)
@@ -2035,15 +2033,12 @@ static int sel_fill_super(struct super_block *sb, struct fs_context *fc)
 		/* last one */ {"", NULL, 0}
 	};
 
-	ret = selinux_fs_info_create(sb);
-	if (ret)
-		goto err;
-
 	ret = simple_fill_super(sb, SELINUX_MAGIC, selinux_files);
 	if (ret)
 		goto err;
 
 	fsi = sb->s_fs_info;
+	fsi->sb = sb;
 	fsi->bool_dir = sel_make_dir(sb->s_root, BOOL_DIR_NAME, &fsi->last_ino);
 	if (IS_ERR(fsi->bool_dir)) {
 		ret = PTR_ERR(fsi->bool_dir);
@@ -2124,12 +2119,48 @@ err:
 	return ret;
 }
 
+static int selinuxfs_compare(struct super_block *sb, struct fs_context *fc)
+{
+	struct selinux_fs_info *fsi = sb->s_fs_info;
+
+	return (current_selinux_state == fsi->state);
+}
+
 static int sel_get_tree(struct fs_context *fc)
 {
-	return get_tree_single(fc, sel_fill_super);
+	struct selinux_fs_info *fsi;
+	struct super_block *sb;
+	int err;
+
+	fsi = selinux_fs_info_create();
+	if (!fsi)
+		return -ENOMEM;
+
+	fc->s_fs_info = fsi;
+	sb = sget_fc(fc, selinuxfs_compare, set_anon_super_fc);
+	if (IS_ERR(sb))
+		return PTR_ERR(sb);
+
+	if (!sb->s_root) {
+		err = sel_fill_super(sb, fc);
+		if (err) {
+			deactivate_locked_super(sb);
+			return err;
+		}
+		sb->s_flags |= SB_ACTIVE;
+	}
+
+	fc->root = dget(sb->s_root);
+	return 0;
+}
+
+static void sel_free_fs_context(struct fs_context *fc)
+{
+	selinux_fs_info_free(fc->s_fs_info);
 }
 
 static const struct fs_context_operations sel_context_ops = {
+	.free		= sel_free_fs_context,
 	.get_tree	= sel_get_tree,
 };
 
