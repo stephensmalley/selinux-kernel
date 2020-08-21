@@ -109,9 +109,6 @@
 
 #define SELINUX_INODE_INIT_XATTRS 1
 
-struct selinux_state *init_selinux_state;
-struct selinux_state *current_selinux_state;
-
 /* SECMARK reference count */
 static atomic_t selinux_secmark_refcount = ATOMIC_INIT(0);
 
@@ -208,6 +205,8 @@ static int selinux_lsm_notifier_avc_callback(u32 event)
 	return 0;
 }
 
+struct selinux_state *init_selinux_state;
+
 /*
  * initialise the security for the init task
  */
@@ -219,6 +218,7 @@ static void cred_init_security(void)
 
 	crsec = selinux_cred(unrcu_pointer(current->real_cred));
 	crsec->osid = crsec->sid = SECINITSID_KERNEL;
+	crsec->state = get_selinux_state(init_selinux_state);
 }
 
 /*
@@ -230,6 +230,27 @@ static inline u32 cred_sid(const struct cred *cred)
 
 	crsec = selinux_cred(cred);
 	return crsec->sid;
+}
+
+static struct cred_security_struct unlabeled_cred_security = {
+	.osid = SECINITSID_UNLABELED,
+	.sid = SECINITSID_UNLABELED,
+};
+
+/*
+ * Caller must hold RCU read lock.
+ */
+static const struct cred_security_struct *task_cred_security(
+	const struct task_struct *p)
+{
+	const struct cred_security_struct *crsec;
+
+	crsec = selinux_cred(__task_cred(p));
+	while (crsec->state != current_selinux_state && crsec->parent_cred)
+		crsec = selinux_cred(crsec->parent_cred);
+	if (crsec->state != current_selinux_state)
+		return &unlabeled_cred_security;
+	return crsec;
 }
 
 static void __ad_net_init(struct common_audit_data *ad,
@@ -262,10 +283,12 @@ static void ad_net_init_from_iif(struct common_audit_data *ad,
  */
 static inline u32 task_sid_obj(const struct task_struct *task)
 {
+	const struct cred_security_struct *crsec;
 	u32 sid;
 
 	rcu_read_lock();
-	sid = cred_sid(__task_cred(task));
+	crsec = task_cred_security(task);
+	sid = crsec->sid;
 	rcu_read_unlock();
 	return sid;
 }
@@ -4359,6 +4382,18 @@ static int selinux_task_alloc(struct task_struct *task,
 }
 
 /*
+ * free/release any cred memory other than the blob itself
+ */
+static void selinux_cred_free(struct cred *cred)
+{
+	struct cred_security_struct *crsec = selinux_cred(cred);
+
+	put_selinux_state(crsec->state);
+	if (crsec->parent_cred)
+		put_cred(crsec->parent_cred);
+}
+
+/*
  * prepare a new set of credentials for modification
  */
 static int selinux_cred_prepare(struct cred *new, const struct cred *old,
@@ -4367,7 +4402,11 @@ static int selinux_cred_prepare(struct cred *new, const struct cred *old,
 	const struct cred_security_struct *old_crsec = selinux_cred(old);
 	struct cred_security_struct *crsec = selinux_cred(new);
 
+
 	*crsec = *old_crsec;
+	crsec->state = get_selinux_state(old_crsec->state);
+	if (old_crsec->parent_cred)
+		crsec->parent_cred = get_cred(old_crsec->parent_cred);
 	return 0;
 }
 
@@ -4380,6 +4419,9 @@ static void selinux_cred_transfer(struct cred *new, const struct cred *old)
 	struct cred_security_struct *crsec = selinux_cred(new);
 
 	*crsec = *old_crsec;
+	crsec->state = get_selinux_state(old_crsec->state);
+	if (old_crsec->parent_cred)
+		crsec->parent_cred = get_cred(old_crsec->parent_cred);
 }
 
 static void selinux_cred_getsecid(const struct cred *c, u32 *secid)
@@ -6796,7 +6838,7 @@ static int selinux_lsm_getattr(unsigned int attr, struct task_struct *p,
 	u32 len;
 
 	rcu_read_lock();
-	crsec = selinux_cred(__task_cred(p));
+	crsec = task_cred_security(p);
 	if (p != current) {
 		error = avc_has_perm(current_selinux_state,
 				     current_sid(), crsec->sid,
@@ -7775,6 +7817,7 @@ static struct security_hook_list selinux_hooks[] __ro_after_init = {
 	LSM_HOOK_INIT(file_open, selinux_file_open),
 
 	LSM_HOOK_INIT(task_alloc, selinux_task_alloc),
+	LSM_HOOK_INIT(cred_free, selinux_cred_free),
 	LSM_HOOK_INIT(cred_prepare, selinux_cred_prepare),
 	LSM_HOOK_INIT(cred_transfer, selinux_cred_transfer),
 	LSM_HOOK_INIT(cred_getsecid, selinux_cred_getsecid),
@@ -8036,7 +8079,6 @@ static __init int selinux_init(void)
 	if (selinux_state_create(NULL, &init_selinux_state))
 		panic("SELinux: Could not create initial namespace\n");
 	enforcing_set(init_selinux_state, selinux_enforcing_boot);
-	current_selinux_state = init_selinux_state;
 
 	/* Set the security state for the initial task. */
 	cred_init_security();
