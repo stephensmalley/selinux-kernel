@@ -142,7 +142,7 @@ static int sel_netport_sid_slow(u8 protocol, u16 pnum, u32 *sid)
 		return 0;
 	}
 
-	ret = security_port_sid(protocol, pnum, sid);
+	ret = security_port_sid(&selinux_state, protocol, pnum, sid);
 	if (ret != 0)
 		goto out;
 
