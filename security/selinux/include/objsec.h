@@ -57,7 +57,7 @@ static inline bool task_avdcache_permnoaudit(struct task_security_struct *tsec)
 {
 	return (tsec->avdcache.permissive_neveraudit &&
 		tsec->sid == tsec->avdcache.sid &&
-		tsec->avdcache.seqno == avc_policy_seqno());
+		tsec->avdcache.seqno == avc_policy_seqno(&selinux_state));
 }
 
 enum label_initialized {
