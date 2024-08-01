@@ -318,6 +318,29 @@ static int __inode_security_revalidate(struct inode *inode,
 	return rc;
 }
 
+/*
+ * Update file security blob for new SELinux namespace.
+ * Intended to be called as a callback by iterate_fd().
+ */
+int selinux_update_file(const void *p, struct file *file, unsigned int fd)
+{
+	const struct task_security_struct *tsec = p;
+	struct file_security_struct *fsec = selinux_file(file);
+	struct inode *inode = file_inode(file);
+	struct inode_security_struct *isec;
+
+	fsec->sid = tsec->sid;
+	fsec->fown_sid = tsec->sid;
+	__inode_security_revalidate(inode, file->f_path.dentry, false);
+	isec = selinux_inode(inode);
+	fsec->isid = isec->sid;
+	fsec->pseqno = avc_policy_seqno(tsec->state);
+	put_selinux_state(fsec->state);
+	fsec->state = get_selinux_state(tsec->state);
+
+	return 0;
+}
+
 static struct inode_security_struct *inode_security_novalidate(struct inode *inode)
 {
 	return selinux_inode(inode);
@@ -1842,7 +1865,7 @@ static int file_has_perm(const struct cred *cred,
 	ad.type = LSM_AUDIT_DATA_FILE;
 	ad.u.file = file;
 
-	if (sid != fsec->sid) {
+	if (fsec->state == current_selinux_state && sid != fsec->sid) {
 		rc = avc_has_perm(cred_selinux_state(cred),
 				  sid, fsec->sid,
 				  SECCLASS_FD,
@@ -3805,8 +3828,16 @@ static int selinux_file_alloc_security(struct file *file)
 
 	fsec->sid = sid;
 	fsec->fown_sid = sid;
+	fsec->state = get_selinux_state(current_selinux_state);
 
 	return 0;
+}
+
+static void selinux_file_free_security(struct file *file)
+{
+	struct file_security_struct *fsec = selinux_file(file);
+
+	put_selinux_state(fsec->state);
 }
 
 /*
@@ -7466,6 +7497,7 @@ static struct security_hook_list selinux_hooks[] __ro_after_init = {
 
 	LSM_HOOK_INIT(file_permission, selinux_file_permission),
 	LSM_HOOK_INIT(file_alloc_security, selinux_file_alloc_security),
+	LSM_HOOK_INIT(file_free_security, selinux_file_free_security),
 	LSM_HOOK_INIT(file_ioctl, selinux_file_ioctl),
 	LSM_HOOK_INIT(file_ioctl_compat, selinux_file_ioctl_compat),
 	LSM_HOOK_INIT(mmap_file, selinux_mmap_file),

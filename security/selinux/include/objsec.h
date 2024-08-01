@@ -55,6 +55,7 @@ struct file_security_struct {
 	u32 fown_sid; /* SID of file owner (for SIGIO) */
 	u32 isid; /* SID of inode at the time of file open */
 	u32 pseqno; /* Policy seqno at the time of file open */
+	struct selinux_state *state; /* selinux namespace */
 };
 
 struct superblock_security_struct {
@@ -176,5 +177,7 @@ selinux_superblock(const struct super_block *superblock)
 {
 	return superblock->s_security + selinux_blob_sizes.lbs_superblock;
 }
+
+int selinux_update_file(const void *p, struct file *file, unsigned int fd);
 
 #endif /* _SELINUX_OBJSEC_H_ */
