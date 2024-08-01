@@ -304,7 +304,8 @@ static int __inode_security_revalidate(struct inode *inode,
 	might_sleep_if(may_sleep);
 
 	if (selinux_initialized(current_selinux_state) &&
-	    isec->initialized != LABEL_INITIALIZED) {
+	    (isec->state != current_selinux_state ||
+	     isec->initialized != LABEL_INITIALIZED)) {
 		if (!may_sleep)
 			return -ECHILD;
 
@@ -383,6 +384,9 @@ static void inode_free_security(struct inode *inode)
 		list_del_init(&isec->list);
 		spin_unlock(&sbsec->isec_lock);
 	}
+
+	put_selinux_state(isec->state);
+	isec->state = NULL;
 }
 
 struct selinux_mnt_opts {
@@ -859,6 +863,8 @@ static int selinux_set_mnt_opts(struct super_block *sb,
 			goto out;
 
 		root_isec->sid = rootcontext_sid;
+		put_selinux_state(root_isec->state);
+		root_isec->state = get_selinux_state(current_selinux_state);
 		root_isec->initialized = LABEL_INITIALIZED;
 	}
 
@@ -1443,11 +1449,13 @@ static int inode_doinit_with_dentry(struct inode *inode, struct dentry *opt_dent
 	struct dentry *dentry;
 	int rc = 0;
 
-	if (isec->initialized == LABEL_INITIALIZED)
+	if (isec->state == current_selinux_state &&
+	    isec->initialized == LABEL_INITIALIZED)
 		return 0;
 
 	spin_lock(&isec->lock);
-	if (isec->initialized == LABEL_INITIALIZED)
+	if (isec->state == current_selinux_state &&
+	    isec->initialized == LABEL_INITIALIZED)
 		goto out_unlock;
 
 	if (isec->sclass == SECCLASS_FILE)
@@ -1594,6 +1602,8 @@ out:
 			isec->initialized = LABEL_INVALID;
 			goto out_unlock;
 		}
+		put_selinux_state(isec->state);
+		isec->state = get_selinux_state(current_selinux_state);
 		isec->initialized = LABEL_INITIALIZED;
 		isec->sid = sid;
 	}
@@ -3000,6 +3010,8 @@ static int selinux_inode_init_security(struct inode *inode, struct inode *dir,
 		struct inode_security_struct *isec = selinux_inode(inode);
 		isec->sclass = newsclass;
 		isec->sid = newsid;
+		put_selinux_state(isec->state);
+		isec->state = get_selinux_state(current_selinux_state);
 		isec->initialized = LABEL_INITIALIZED;
 	}
 
@@ -3059,6 +3071,8 @@ static int selinux_inode_init_security_anon(struct inode *inode,
 			return rc;
 	}
 
+	put_selinux_state(isec->state);
+	isec->state = get_selinux_state(current_selinux_state);
 	isec->initialized = LABEL_INITIALIZED;
 	/*
 	 * Now that we've initialized security, check whether we're
@@ -3405,6 +3419,8 @@ static void selinux_inode_post_setxattr(struct dentry *dentry, const char *name,
 	spin_lock(&isec->lock);
 	isec->sclass = inode_mode_to_security_class(inode->i_mode);
 	isec->sid = newsid;
+	put_selinux_state(isec->state);
+	isec->state = get_selinux_state(current_selinux_state);
 	isec->initialized = LABEL_INITIALIZED;
 	spin_unlock(&isec->lock);
 }
@@ -3559,6 +3575,8 @@ static int selinux_inode_setsecurity(struct inode *inode, const char *name,
 	spin_lock(&isec->lock);
 	isec->sclass = inode_mode_to_security_class(inode->i_mode);
 	isec->sid = newsid;
+	put_selinux_state(isec->state);
+	isec->state = get_selinux_state(current_selinux_state);
 	isec->initialized = LABEL_INITIALIZED;
 	spin_unlock(&isec->lock);
 	return 0;
@@ -4380,6 +4398,8 @@ static void selinux_task_to_inode(struct task_struct *p,
 	spin_lock(&isec->lock);
 	isec->sclass = inode_mode_to_security_class(inode->i_mode);
 	isec->sid = sid;
+	put_selinux_state(isec->state);
+	isec->state = get_selinux_state(current_selinux_state);
 	isec->initialized = LABEL_INITIALIZED;
 	spin_unlock(&isec->lock);
 }
@@ -4767,6 +4787,8 @@ static int selinux_socket_post_create(struct socket *sock, int family,
 
 	isec->sclass = sclass;
 	isec->sid = sid;
+	put_selinux_state(isec->state);
+	isec->state = get_selinux_state(current_selinux_state);
 	isec->initialized = LABEL_INITIALIZED;
 
 	if (sock->sk) {
@@ -5070,6 +5092,8 @@ static int selinux_socket_accept(struct socket *sock, struct socket *newsock)
 	newisec = inode_security_novalidate(SOCK_INODE(newsock));
 	newisec->sclass = sclass;
 	newisec->sid = sid;
+	put_selinux_state(newisec->state);
+	newisec->state = get_selinux_state(current_selinux_state);
 	newisec->initialized = LABEL_INITIALIZED;
 
 	return 0;

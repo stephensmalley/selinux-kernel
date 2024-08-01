@@ -35,6 +35,8 @@ enum label_initialized {
 	LABEL_PENDING
 };
 
+struct selinux_state;
+
 struct inode_security_struct {
 	struct inode *inode; /* back pointer to inode object */
 	struct list_head list; /* list of inode_security_struct */
@@ -43,6 +45,7 @@ struct inode_security_struct {
 	u16 sclass; /* security class of this object */
 	unsigned char initialized; /* initialization flag */
 	spinlock_t lock;
+	struct selinux_state *state; /* selinux namespace */
 };
 
 struct file_security_struct {
