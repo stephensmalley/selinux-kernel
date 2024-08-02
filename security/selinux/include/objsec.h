@@ -46,6 +46,8 @@ struct inode_security_struct {
 	unsigned char initialized; /* initialization flag */
 	spinlock_t lock;
 	struct selinux_state *state; /* selinux namespace */
+	const char *ctx; /* security context */
+	u32 ctxlen; /* security context length */
 };
 
 struct file_security_struct {

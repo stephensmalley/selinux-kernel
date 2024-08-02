@@ -287,7 +287,8 @@ static inline u32 task_sid_obj(const struct task_struct *task)
 	return sid;
 }
 
-static int inode_doinit_with_dentry(struct inode *inode, struct dentry *opt_dentry);
+static int inode_doinit_with_dentry(struct inode *inode,
+				    struct dentry *opt_dentry, bool may_sleep);
 
 /*
  * Try reloading inode security labels that have been marked as invalid.  The
@@ -300,23 +301,21 @@ static int __inode_security_revalidate(struct inode *inode,
 				       bool may_sleep)
 {
 	struct inode_security_struct *isec = selinux_inode(inode);
+	int rc = 0;
 
 	might_sleep_if(may_sleep);
 
 	if (selinux_initialized(current_selinux_state) &&
 	    (isec->state != current_selinux_state ||
 	     isec->initialized != LABEL_INITIALIZED)) {
-		if (!may_sleep)
-			return -ECHILD;
-
 		/*
 		 * Try reloading the inode security label.  This will fail if
-		 * @opt_dentry is NULL and no dentry for this inode can be
+		 * @dentry is NULL and no dentry for this inode can be
 		 * found; in that case, continue using the old label.
 		 */
-		inode_doinit_with_dentry(inode, dentry);
+		rc = inode_doinit_with_dentry(inode, dentry, may_sleep);
 	}
-	return 0;
+	return rc;
 }
 
 static struct inode_security_struct *inode_security_novalidate(struct inode *inode)
@@ -387,6 +386,9 @@ static void inode_free_security(struct inode *inode)
 
 	put_selinux_state(isec->state);
 	isec->state = NULL;
+	kfree(isec->ctx);
+	isec->ctx = NULL;
+	isec->ctxlen = 0;
 }
 
 struct selinux_mnt_opts {
@@ -599,7 +601,7 @@ static int sb_finish_set_opts(struct super_block *sb)
 		sbsec->flags &= ~SBLABEL_MNT;
 
 	/* Initialize the root inode. */
-	rc = inode_doinit_with_dentry(root_inode, root);
+	rc = inode_doinit_with_dentry(root_inode, root, true);
 
 	/* Initialize any other inodes associated with the superblock, e.g.
 	   inodes created prior to initial policy load or inodes created
@@ -616,7 +618,7 @@ static int sb_finish_set_opts(struct super_block *sb)
 		inode = igrab(inode);
 		if (inode) {
 			if (!IS_PRIVATE(inode))
-				inode_doinit_with_dentry(inode, NULL);
+				inode_doinit_with_dentry(inode, NULL, true);
 			iput(inode);
 		}
 		spin_lock(&sbsec->isec_lock);
@@ -1343,13 +1345,14 @@ static inline u16 socket_type_to_security_class(int family, int type, int protoc
 static int selinux_genfs_get_sid(struct dentry *dentry,
 				 u16 tclass,
 				 u16 flags,
-				 u32 *sid)
+				 u32 *sid,
+				 bool may_sleep)
 {
 	int rc;
 	struct super_block *sb = dentry->d_sb;
 	char *buffer, *path;
 
-	buffer = (char *)__get_free_page(GFP_KERNEL);
+	buffer = (char *)__get_free_page(may_sleep ? GFP_KERNEL : GFP_ATOMIC);
 	if (!buffer)
 		return -ENOMEM;
 
@@ -1379,12 +1382,16 @@ static int selinux_genfs_get_sid(struct dentry *dentry,
 }
 
 static int inode_doinit_use_xattr(struct inode *inode, struct dentry *dentry,
-				  u32 def_sid, u32 *sid)
+				  u32 def_sid, u32 *sid, const char **ctx,
+				  u32 *ctxlen)
 {
 #define INITCONTEXTLEN 255
 	char *context;
 	unsigned int len;
 	int rc;
+
+	*ctx = NULL;
+	*ctxlen = 0;
 
 	len = INITCONTEXTLEN;
 	context = kmalloc(len + 1, GFP_NOFS);
@@ -1421,8 +1428,9 @@ static int inode_doinit_use_xattr(struct inode *inode, struct dentry *dentry,
 		return 0;
 	}
 
-	rc = security_context_to_sid_default(current_selinux_state, context, rc,
-					     sid, def_sid, GFP_NOFS);
+	len = rc;
+	rc = security_context_to_sid_default(current_selinux_state, context,
+					     len, sid, def_sid, GFP_NOFS);
 	if (rc) {
 		char *dev = inode->i_sb->s_id;
 		unsigned long ino = inode->i_ino;
@@ -1434,20 +1442,28 @@ static int inode_doinit_use_xattr(struct inode *inode, struct dentry *dentry,
 			pr_warn("SELinux: %s:  context_to_sid(%s) returned %d for dev=%s ino=%ld\n",
 				__func__, context, -rc, dev, ino);
 		}
+		kfree(context);
+	} else {
+		*ctx = context;
+		*ctxlen = len;
 	}
-	kfree(context);
 	return 0;
 }
 
 /* The inode's security attributes must be initialized before first use. */
-static int inode_doinit_with_dentry(struct inode *inode, struct dentry *opt_dentry)
+static int inode_doinit_with_dentry(struct inode *inode,
+				    struct dentry *opt_dentry, bool may_sleep)
 {
 	struct superblock_security_struct *sbsec = NULL;
 	struct inode_security_struct *isec = selinux_inode(inode);
 	u32 task_sid, sid = 0;
 	u16 sclass;
-	struct dentry *dentry;
+	struct dentry *dentry = NULL;
 	int rc = 0;
+	const char *ctx = NULL;
+	u32 ctxlen = 0;
+
+	might_sleep_if(may_sleep);
 
 	if (isec->state == current_selinux_state &&
 	    isec->initialized == LABEL_INITIALIZED)
@@ -1490,12 +1506,27 @@ static int inode_doinit_with_dentry(struct inode *inode, struct dentry *opt_dent
 			sid = sbsec->def_sid;
 			break;
 		}
+
+		if (!may_sleep) {
+			spin_lock(&isec->lock);
+			if (isec->ctx) {
+				rc = security_context_to_sid(
+					current_selinux_state,
+					isec->ctx, isec->ctxlen,
+					&sid,
+					GFP_ATOMIC);
+			} else {
+				rc = -ECHILD;
+			}
+			if (rc)
+				goto out_unlock;
+			spin_unlock(&isec->lock);
+			break;
+		}
+
 		/* Need a dentry, since the xattr API requires one.
 		   Life would be simpler if we could just pass the inode. */
-		if (opt_dentry) {
-			/* Called from d_instantiate or d_splice_alias. */
-			dentry = dget(opt_dentry);
-		} else {
+		if (!opt_dentry) {
 			/*
 			 * Called from selinux_complete_init, try to find a dentry.
 			 * Some filesystems really want a connected one, so try
@@ -1506,7 +1537,7 @@ static int inode_doinit_with_dentry(struct inode *inode, struct dentry *opt_dent
 			if (!dentry)
 				dentry = d_find_any_alias(inode);
 		}
-		if (!dentry) {
+		if (!opt_dentry && !dentry) {
 			/*
 			 * this is can be hit on boot when a file is accessed
 			 * before the policy is loaded.  When we load policy we
@@ -1519,8 +1550,9 @@ static int inode_doinit_with_dentry(struct inode *inode, struct dentry *opt_dent
 			goto out_invalid;
 		}
 
-		rc = inode_doinit_use_xattr(inode, dentry, sbsec->def_sid,
-					    &sid);
+		rc = inode_doinit_use_xattr(inode, opt_dentry ?: dentry,
+					    sbsec->def_sid,
+					    &sid, &ctx, &ctxlen);
 		dput(dentry);
 		if (rc)
 			goto out;
@@ -1550,11 +1582,11 @@ static int inode_doinit_with_dentry(struct inode *inode, struct dentry *opt_dent
 		      selinux_policycap_genfs_seclabel_symlinks())) {
 			/* We must have a dentry to determine the label on
 			 * procfs inodes */
-			if (opt_dentry) {
-				/* Called from d_instantiate or
-				 * d_splice_alias. */
-				dentry = dget(opt_dentry);
-			} else {
+			if (!opt_dentry) {
+				/* d_find_alias is safe but dput is not so we cannot proceed */
+				if (!may_sleep)
+					goto out_invalid;
+
 				/* Called from selinux_complete_init, try to
 				 * find a dentry.  Some filesystems really want
 				 * a connected one, so try that first.
@@ -1572,10 +1604,11 @@ static int inode_doinit_with_dentry(struct inode *inode, struct dentry *opt_dent
 			 * inode_doinit() with a dentry, before these inodes
 			 * could be used again by userspace.
 			 */
-			if (!dentry)
+			if (!opt_dentry && !dentry)
 				goto out_invalid;
-			rc = selinux_genfs_get_sid(dentry, sclass,
-						   sbsec->flags, &sid);
+			rc = selinux_genfs_get_sid(opt_dentry ?: dentry,
+						   sclass, sbsec->flags, &sid,
+						   may_sleep);
 			if (rc) {
 				dput(dentry);
 				goto out;
@@ -1583,8 +1616,27 @@ static int inode_doinit_with_dentry(struct inode *inode, struct dentry *opt_dent
 
 			if ((sbsec->flags & SE_SBGENFS_XATTR) &&
 			    (inode->i_opflags & IOP_XATTR)) {
-				rc = inode_doinit_use_xattr(inode, dentry,
-							    sid, &sid);
+				if (!may_sleep) {
+					spin_lock(&isec->lock);
+					if (isec->ctx) {
+						rc = security_context_to_sid(
+							current_selinux_state,
+							isec->ctx, isec->ctxlen,
+							&sid,
+							GFP_ATOMIC);
+					} else {
+						rc = -ECHILD;
+					}
+					if (rc)
+						goto out_unlock;
+					spin_unlock(&isec->lock);
+					break;
+				}
+
+				rc = inode_doinit_use_xattr(inode,
+							    opt_dentry ?: dentry,
+							    sid, &sid, &ctx,
+							    &ctxlen);
 				if (rc) {
 					dput(dentry);
 					goto out;
@@ -1606,7 +1658,11 @@ out:
 		isec->state = get_selinux_state(current_selinux_state);
 		isec->initialized = LABEL_INITIALIZED;
 		isec->sid = sid;
-	}
+		kfree(isec->ctx);
+		isec->ctx = ctx;
+		isec->ctxlen = ctxlen;
+	} else
+		kfree(ctx);
 
 out_unlock:
 	spin_unlock(&isec->lock);
@@ -1617,6 +1673,9 @@ out_invalid:
 	if (isec->initialized == LABEL_PENDING) {
 		isec->initialized = LABEL_INVALID;
 		isec->sid = sid;
+		kfree(isec->ctx);
+		isec->ctx = NULL;
+		isec->ctxlen = 0;
 	}
 	spin_unlock(&isec->lock);
 	return 0;
@@ -1750,10 +1809,12 @@ static inline int file_path_has_perm(const struct cred *cred,
 				     u32 av)
 {
 	struct common_audit_data ad;
+	struct inode *inode = file_inode(file);
 
 	ad.type = LSM_AUDIT_DATA_FILE;
 	ad.u.file = file;
-	return inode_has_perm(cred, file_inode(file), av, &ad);
+	__inode_security_revalidate(inode, file->f_path.dentry, false);
+	return inode_has_perm(cred, inode, av, &ad);
 }
 
 #ifdef CONFIG_BPF_SYSCALL
@@ -1799,8 +1860,10 @@ static int file_has_perm(const struct cred *cred,
 
 	/* av is zero if only checking access to the descriptor. */
 	rc = 0;
-	if (av)
+	if (av) {
+		__inode_security_revalidate(inode, file->f_path.dentry, false);
 		rc = inode_has_perm(cred, inode, av, &ad);
+	}
 
 out:
 	return rc;
@@ -2933,6 +2996,8 @@ static int selinux_inode_alloc_security(struct inode *inode)
 	isec->sclass = SECCLASS_FILE;
 	isec->task_sid = sid;
 	isec->initialized = LABEL_INVALID;
+	isec->ctx = NULL;
+	isec->ctxlen = 0;
 
 	return 0;
 }
@@ -3924,10 +3989,12 @@ static int selinux_mmap_file(struct file *file,
 	int rc;
 
 	if (file) {
+		struct inode *inode = file_inode(file);
+
 		ad.type = LSM_AUDIT_DATA_FILE;
 		ad.u.file = file;
-		rc = inode_has_perm(current_cred(), file_inode(file),
-				    FILE__MAP, &ad);
+		__inode_security_revalidate(inode, file->f_path.dentry, true);
+		rc = inode_has_perm(current_cred(), inode, FILE__MAP, &ad);
 		if (rc)
 			return rc;
 	}
@@ -6515,7 +6582,7 @@ static void selinux_ipc_getsecid(struct kern_ipc_perm *ipcp, u32 *secid)
 static void selinux_d_instantiate(struct dentry *dentry, struct inode *inode)
 {
 	if (inode)
-		inode_doinit_with_dentry(inode, dentry);
+		inode_doinit_with_dentry(inode, dentry, true);
 }
 
 static int selinux_lsm_getattr(unsigned int attr, struct task_struct *p,
