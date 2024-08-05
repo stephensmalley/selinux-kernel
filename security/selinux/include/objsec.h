@@ -178,6 +178,4 @@ selinux_superblock(const struct super_block *superblock)
 	return superblock->s_security + selinux_blob_sizes.lbs_superblock;
 }
 
-int selinux_update_file(const void *p, struct file *file, unsigned int fd);
-
 #endif /* _SELINUX_OBJSEC_H_ */

@@ -16,7 +16,6 @@
 #include <linux/pagemap.h>
 #include <linux/slab.h>
 #include <linux/vmalloc.h>
-#include <linux/fdtable.h>
 #include <linux/fs.h>
 #include <linux/fs_context.h>
 #include <linux/mount.h>
@@ -367,16 +366,12 @@ static ssize_t sel_write_unshare(struct file *file, const char __user *buf,
 			goto out;
 		}
 		tsec = selinux_cred(cred);
-		if (selinux_state_create(state, &tsec->state)) {
+		if (selinux_state_create(state, &tsec->exec_state)) {
 			abort_creds(cred);
 			length = -ENOMEM;
 			goto out;
 		}
-		tsec->osid = tsec->sid = SECINITSID_KERNEL;
-		tsec->exec_sid = tsec->create_sid = tsec->keycreate_sid =
-			tsec->sockcreate_sid = SECSID_NULL;
 		tsec->parent_cred = get_current_cred();
-		iterate_fd(current->files, 0, selinux_update_file, tsec);
 		commit_creds(cred);
 	}
 

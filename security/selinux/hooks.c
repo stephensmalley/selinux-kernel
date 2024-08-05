@@ -322,7 +322,8 @@ static int __inode_security_revalidate(struct inode *inode,
  * Update file security blob for new SELinux namespace.
  * Intended to be called as a callback by iterate_fd().
  */
-int selinux_update_file(const void *p, struct file *file, unsigned int fd)
+static int selinux_update_file(const void *p, struct file *file,
+			       unsigned int fd)
 {
 	const struct task_security_struct *tsec = p;
 	struct file_security_struct *fsec = selinux_file(file);
@@ -2565,6 +2566,13 @@ static int selinux_bprm_creds_for_exec(struct linux_binprm *bprm)
 		bprm->secureexec |= !!rc;
 	}
 
+	if (old_tsec->exec_state) {
+		new_tsec->state = get_selinux_state(old_tsec->exec_state);
+		new_tsec->exec_state = NULL;
+		new_tsec->osid = new_tsec->sid = SECINITSID_KERNEL;
+		iterate_fd(current->files, 0, selinux_update_file, new_tsec);
+	}
+
 	return 0;
 }
 
@@ -4201,6 +4209,7 @@ static void selinux_cred_free(struct cred *cred)
 	struct task_security_struct *tsec = selinux_cred(cred);
 
 	put_selinux_state(tsec->state);
+	put_selinux_state(tsec->exec_state);
 	if (tsec->parent_cred)
 		put_cred(tsec->parent_cred);
 }
@@ -4216,6 +4225,8 @@ static int selinux_cred_prepare(struct cred *new, const struct cred *old,
 
 	*tsec = *old_tsec;
 	tsec->state = get_selinux_state(old_tsec->state);
+	if (old_tsec->exec_state)
+		tsec->exec_state = get_selinux_state(old_tsec->exec_state);
 	if (old_tsec->parent_cred)
 		tsec->parent_cred = get_cred(old_tsec->parent_cred);
 	return 0;
@@ -4231,6 +4242,8 @@ static void selinux_cred_transfer(struct cred *new, const struct cred *old)
 
 	*tsec = *old_tsec;
 	tsec->state = get_selinux_state(old_tsec->state);
+	if (tsec->exec_state)
+		tsec->exec_state = get_selinux_state(old_tsec->exec_state);
 	if (old_tsec->parent_cred)
 		tsec->parent_cred = get_cred(old_tsec->parent_cred);
 }

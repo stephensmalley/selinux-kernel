@@ -142,6 +142,7 @@ struct task_security_struct {
 	u32 sockcreate_sid; /* SID for new sockets */
 	struct selinux_state *state; /* selinux namespace */
 	const struct cred *parent_cred; /* cred in parent ns */
+	struct selinux_state *exec_state; /* selinux namespace upon execve */
 } __randomize_layout;
 
 extern struct lsm_blob_sizes selinux_blob_sizes;
