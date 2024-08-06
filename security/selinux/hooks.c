@@ -1539,11 +1539,11 @@ static int inode_doinit_with_dentry(struct selinux_state *state,
 	spin_unlock(&isec->lock);
 
 	/*
-	 * If a different namespace and not using xattrs, convert the incore
+	 * If a different namespace and not unlabeled, convert the incore
 	 * inode SID to a context in the original namespace and then convert
 	 * the context to a SID in the new namespace.
 	 */
-	if (oldstate != state && sbsec->behavior != SECURITY_FS_USE_XATTR) {
+	if (oldstate != state && sid != SECINITSID_UNLABELED) {
 		char *context = NULL;
 
 		rc = security_sid_to_context(oldstate, sid, &context, &ctxlen);
