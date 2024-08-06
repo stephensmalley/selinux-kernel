@@ -67,6 +67,7 @@ struct superblock_security_struct {
 	struct mutex lock;
 	struct list_head isec_head;
 	spinlock_t isec_lock;
+	struct selinux_state *state; /* selinux namespace */
 };
 
 struct msg_security_struct {

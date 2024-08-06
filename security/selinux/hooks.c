@@ -1967,6 +1967,47 @@ selinux_determine_inode_label(const struct task_security_struct *tsec,
 	return 0;
 }
 
+/*
+ * Revalidate superblock security blob and if necessary,
+ * update it for the specified namespace.
+ */
+static void sbsec_revalidate(struct selinux_state *state,
+			     struct superblock_security_struct *sbsec)
+{
+	int rc;
+	u32 sid, ctxlen;
+	char *context;
+	const char *ctx;
+	struct selinux_state *oldstate;
+
+	if (!selinux_initialized(state))
+		return;
+
+	if (sbsec->state == state)
+		return;
+
+	mutex_lock(&sbsec->lock);
+	sid = sbsec->sid;
+	oldstate = sbsec->state;
+
+	if (oldstate == state)
+		goto out_unlock;
+
+	rc = security_sid_to_context(oldstate, sid, &context, &ctxlen);
+	if (rc)
+		goto out_unlock;
+	ctx = context;
+	rc = security_context_to_sid(state, ctx, ctxlen, &sid, GFP_KERNEL);
+	kfree(context);
+	if (rc)
+		goto out_unlock;
+
+	sbsec->sid = sid;
+	sbsec->state = state;
+out_unlock:
+	mutex_unlock(&sbsec->lock);
+}
+
 /* Check whether a task can create a file. */
 static int may_create(struct inode *dir,
 		      struct dentry *dentry,
@@ -2004,6 +2045,7 @@ static int may_create(struct inode *dir,
 	if (rc)
 		return rc;
 
+	sbsec_revalidate(current_selinux_state, sbsec);
 	return avc_has_perm(current_selinux_state,
 			    newsid, sbsec->sid,
 			    SECCLASS_FILESYSTEM,
@@ -2130,6 +2172,8 @@ static int superblock_has_perm(const struct cred *cred,
 	u32 sid = cred_sid(cred);
 
 	sbsec = selinux_superblock(sb);
+
+	sbsec_revalidate(cred_selinux_state(cred), sbsec);
 	return avc_has_perm(cred_selinux_state(cred),
 			    sid, sbsec->sid, SECCLASS_FILESYSTEM, perms, ad);
 }
@@ -2780,8 +2824,17 @@ static int selinux_sb_alloc_security(struct super_block *sb)
 	sbsec->sid = SECINITSID_UNLABELED;
 	sbsec->def_sid = SECINITSID_FILE;
 	sbsec->mntpoint_sid = SECINITSID_UNLABELED;
+	sbsec->state = get_selinux_state(current_selinux_state);
 
 	return 0;
+}
+
+static void selinux_sb_free_security(struct super_block *sb)
+{
+	struct superblock_security_struct *sbsec = selinux_superblock(sb);
+
+	put_selinux_state(sbsec->state);
+	sbsec->state = NULL;
 }
 
 static inline int opt_len(const char *s)
@@ -3499,6 +3552,7 @@ static int selinux_inode_setxattr(struct mnt_idmap *idmap,
 	if (rc)
 		return rc;
 
+	sbsec_revalidate(current_selinux_state, sbsec);
 	return avc_has_perm(current_selinux_state,
 			    newsid,
 			    sbsec->sid,
@@ -7745,6 +7799,7 @@ static struct security_hook_list selinux_hooks[] __ro_after_init = {
 		      selinux_msg_queue_alloc_security),
 	LSM_HOOK_INIT(shm_alloc_security, selinux_shm_alloc_security),
 	LSM_HOOK_INIT(sb_alloc_security, selinux_sb_alloc_security),
+	LSM_HOOK_INIT(sb_free_security, selinux_sb_free_security),
 	LSM_HOOK_INIT(inode_alloc_security, selinux_inode_alloc_security),
 	LSM_HOOK_INIT(sem_alloc_security, selinux_sem_alloc_security),
 	LSM_HOOK_INIT(secid_to_secctx, selinux_secid_to_secctx),
