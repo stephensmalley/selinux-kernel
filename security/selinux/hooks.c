@@ -1498,6 +1498,9 @@ static int inode_doinit_with_dentry(struct selinux_state *state,
 
 	might_sleep_if(may_sleep);
 
+	if (!selinux_initialized(state))
+		return 0;
+
 	if (isec->state == state && isec->initialized == LABEL_INITIALIZED)
 		return 0;
 
