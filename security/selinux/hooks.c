@@ -108,6 +108,7 @@
 #include "audit.h"
 #include "avc_ss.h"
 #include "ima.h"
+#include "global_sidtab.h"
 
 #define SELINUX_INODE_INIT_XATTRS 1
 
@@ -8268,6 +8269,9 @@ static __init int selinux_init(void)
 	audit_cfg_lsm(&selinux_lsmid,
 		      AUDIT_CFG_LSM_SECCTX_SUBJECT |
 		      AUDIT_CFG_LSM_SECCTX_OBJECT);
+
+	if (global_sidtab_init())
+		panic("SELinux: Could not create global SID table\n");
 
 	default_noexec = !vma_flags_test(&data_default_flags, VMA_EXEC_BIT);
 	if (!default_noexec)
