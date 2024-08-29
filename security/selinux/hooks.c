@@ -104,6 +104,7 @@
 #include "netlabel.h"
 #include "audit.h"
 #include "avc_ss.h"
+#include "global_sidtab.h"
 
 #define SELINUX_INODE_INIT_XATTRS 1
 
@@ -7896,6 +7897,9 @@ static __init int selinux_init(void)
 	init_selinux_state = get_selinux_state(tsec->state);
 
 	enforcing_set(init_selinux_state, selinux_enforcing_boot);
+
+	if (global_sidtab_init())
+		panic("SELinux: Could not create global SID table\n");
 
 	default_noexec = !(VM_DATA_DEFAULT_FLAGS & VM_EXEC);
 	if (!default_noexec)
