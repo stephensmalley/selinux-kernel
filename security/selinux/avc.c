@@ -31,6 +31,7 @@
 #include "avc_ss.h"
 #include "classmap.h"
 #include "hash.h"
+#include "objsec.h"
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/avc.h>
@@ -1309,6 +1310,53 @@ int cred_task_has_perm(const struct cred *cred, const struct task_struct *p,
 	} while (cred);
 
 	return 0;
+}
+
+/**
+ * task_obj_has_perm - Check and audit permissions on a (task, other-task) pair
+ * @s: source task
+ * @t: target task
+ * @tclass: target security class
+ * @requested: requested permissions, interpreted based on @tclass
+ * @ad: auxiliary audit data
+ *
+ * Check permissions between a task @s and a task @t for the current namespace
+ * and all ancestors to determine whether the @requested permissions are
+ * granted.
+ * Audit the granting or denial of permissions in accordance with the policy.
+ * Return %0 if all @requested permissions are granted, -%EACCES if any
+ * permissions are denied, or another -errno upon other errors.
+ * DO NOT USE when @s is current; use cred_task_has_perm() instead.
+ */
+int task_obj_has_perm(const struct task_struct *s,
+		      const struct task_struct *t,
+		      u16 tclass, u32 requested,
+		      struct common_audit_data *ad)
+{
+	const struct cred_security_struct *crsec;
+	struct selinux_state *state;
+	u32 ssid;
+	u32 tsid;
+	int rc;
+
+	state = current_selinux_state;
+	rcu_read_lock();
+	crsec = selinux_task_cred_security(s);
+	ssid = crsec->sid;
+
+	do {
+		tsid = task_sid_obj_for_state(t, state);
+
+		rc = avc_has_perm(state, ssid, tsid, tclass, requested, ad);
+		if (rc)
+			break;
+
+		ssid = state->creator_sid;
+		state = state->parent;
+	} while (state);
+
+	rcu_read_unlock();
+	return rc;
 }
 
 /**

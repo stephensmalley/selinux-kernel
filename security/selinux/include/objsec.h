@@ -277,4 +277,10 @@ selinux_bpf_token_security(struct bpf_token *token)
 	return token->security + selinux_blob_sizes.lbs_bpf_token;
 }
 #endif /* CONFIG_BPF_SYSCALL */
+
+/*
+ * Caller must hold RCU read lock.
+ */
+const struct cred_security_struct *selinux_task_cred_security(const struct task_struct *p);
+
 #endif /* _SELINUX_OBJSEC_H_ */
