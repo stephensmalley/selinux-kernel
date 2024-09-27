@@ -1291,6 +1291,63 @@ int cred_task_has_perm(const struct cred *cred, const struct task_struct *p,
 	return 0;
 }
 
+static const struct cred_security_struct *task_cred_security(
+	const struct task_struct *p)
+{
+	const struct cred_security_struct *crsec;
+
+	crsec = selinux_cred(__task_cred(p));
+	while (crsec->state != current_selinux_state && crsec->parent_cred)
+		crsec = selinux_cred(crsec->parent_cred);
+	if (crsec->state != current_selinux_state)
+		return NULL;
+	return crsec;
+}
+
+int task_obj_has_perm(const struct task_struct *s,
+		      const struct task_struct *t,
+		      u16 tclass, u32 requested,
+		      struct common_audit_data *ad)
+{
+	const struct cred *cred;
+	const struct cred_security_struct *crsec;
+	struct selinux_state *state;
+	u32 ssid;
+	u32 tsid;
+	int rc;
+
+	state = current_selinux_state;
+	rcu_read_lock();
+	crsec = task_cred_security(s);
+	if (crsec)
+		ssid = crsec->sid;
+	else
+		ssid = SECINITSID_UNLABELED;
+
+	do {
+		tsid = task_sid_obj_for_state(t, state);
+
+		rc = avc_has_perm(state, ssid, tsid, tclass, requested, ad);
+		if (rc)
+			break;
+
+		if (!crsec)
+			break;
+
+		cred = crsec->parent_cred;
+		if (!cred)
+			break;
+
+		crsec = selinux_cred(cred);
+		ssid = crsec->sid;
+		state = crsec->state;
+	} while (cred);
+
+	rcu_read_unlock();
+	return rc;
+}
+
+
 int cred_has_extended_perms(const struct cred *cred, u32 tsid, u16 tclass,
 			    u32 requested, u8 driver, u8 base_perm, u8 xperm,
 			    struct common_audit_data *ad)
