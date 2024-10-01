@@ -111,6 +111,8 @@ struct selinux_state {
 
 	refcount_t count;
 	struct work_struct work;
+
+	u32 creator_sid; /* SID of namespace creator */
 } __randomize_layout;
 
 int selinux_state_create(const struct cred *cred);
