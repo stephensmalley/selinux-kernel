@@ -113,8 +113,10 @@ struct selinux_state {
 	struct work_struct work;
 
 	u32 creator_sid; /* SID of namespace creator */
+	unsigned short depth;
 } __randomize_layout;
 
+extern unsigned int selinux_maxns, selinux_maxnsdepth;
 int selinux_state_create(const struct cred *cred);
 void __put_selinux_state(struct selinux_state *state);
 

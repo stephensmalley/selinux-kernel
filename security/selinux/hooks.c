@@ -8048,17 +8048,34 @@ static struct security_hook_list selinux_hooks[] __ro_after_init = {
 
 static void selinux_state_free(struct work_struct *work);
 
+unsigned int selinux_maxns = CONFIG_SECURITY_SELINUX_MAXNS;
+unsigned int selinux_maxnsdepth = CONFIG_SECURITY_SELINUX_MAXNSDEPTH;
+
+static atomic_t selinux_nsnum = ATOMIC_INIT(0);
+
 int selinux_state_create(const struct cred *cred)
 {
 	struct cred_security_struct *crsec = selinux_cred(cred);
 	struct selinux_state *parent = crsec->state;
 	u32 creator_sid = crsec->sid;
-	struct selinux_state *newstate;
+	struct selinux_state *newstate = NULL;
 	int rc;
 
+	if (atomic_inc_return(&selinux_nsnum) > selinux_maxns) {
+		rc = -ENOSPC;
+		goto err;
+	}
+
+	if (parent && parent->depth >= selinux_maxnsdepth) {
+		rc = -ENOSPC;
+		goto err;
+	}
+
 	newstate = kzalloc(sizeof(*newstate), GFP_KERNEL);
-	if (!newstate)
-		return -ENOMEM;
+	if (!newstate) {
+		rc = -ENOMEM;
+		goto err;
+	}
 
 	newstate->creator_sid = creator_sid;
 
@@ -8080,6 +8097,7 @@ int selinux_state_create(const struct cred *cred)
 		 * to increment the parent reference count.
 		 */
 		newstate->parent = parent;
+		newstate->depth = parent->depth + 1;
 	}
 
 	/*
@@ -8103,10 +8121,10 @@ int selinux_state_create(const struct cred *cred)
 		put_cred(crsec->parent_cred);
 		crsec->parent_cred = get_current_cred();
 	}
-
 	return 0;
 err:
 	kfree(newstate);
+	atomic_dec(&selinux_nsnum);
 	return rc;
 }
 
@@ -8121,6 +8139,7 @@ static void selinux_state_free(struct work_struct *work)
 			__free_page(state->status_page);
 		selinux_state_policy_free(state);
 		selinux_avc_free(state->avc);
+		atomic_dec(&selinux_nsnum);
 		kfree(state);
 		state = parent;
 	} while (state && refcount_dec_and_test(&state->count));
