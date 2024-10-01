@@ -111,8 +111,12 @@ struct selinux_state {
 
 	refcount_t count;
 	struct work_struct work;
+	unsigned short depth;
 } __randomize_layout;
 
+extern struct selinux_state *init_selinux_state;
+
+extern unsigned int selinux_maxns, selinux_maxnsdepth;
 int selinux_state_create(struct selinux_state *parent,
 			 struct selinux_state **state);
 void __put_selinux_state(struct selinux_state *state);
@@ -135,8 +139,6 @@ get_selinux_state(struct selinux_state *state)
 	refcount_inc(&state->count);
 	return state;
 }
-
-extern struct selinux_state *init_selinux_state;
 
 struct avdc_entry {
 	u32 isid; /* inode SID */
