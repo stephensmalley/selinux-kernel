@@ -72,6 +72,16 @@ static void selnl_notify(int msgtype, void *data)
 	struct sk_buff *skb;
 	struct nlmsghdr *nlh;
 
+	/*
+	 * Suppress SELinux netlink notifications from a non-init selinux
+	 * namespace. Otherwise, a child namespace could confuse an ancestor
+	 * namespace with its own enforcing mode or policy reload
+	 * notifications. Modern libselinux on modern kernels uses the
+	 * SELinux status page instead, which is per-namespace already.
+	 */
+	if (current_selinux_state != &init_selinux_state)
+		return;
+
 	len = selnl_msglen(msgtype);
 
 	skb = nlmsg_new(len, GFP_USER);
