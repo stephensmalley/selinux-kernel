@@ -7607,8 +7607,10 @@ int selinux_state_create(struct selinux_state *parent,
 	if (rc)
 		goto err;
 
-	if (parent)
-		newstate->parent = get_selinux_state(parent);
+	if (parent) {
+		/* Consumes parent reference */
+		newstate->parent = parent;
+	}
 
 	*state = newstate;
 	return 0;
