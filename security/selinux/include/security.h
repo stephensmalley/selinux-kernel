@@ -109,6 +109,7 @@ struct selinux_state {
 
 void selinux_avc_init(struct selinux_avc **avc);
 
+extern struct selinux_state init_selinux_state;
 extern struct selinux_state *current_selinux_state;
 
 static inline bool selinux_initialized(const struct selinux_state *state)
