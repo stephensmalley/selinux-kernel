@@ -7590,7 +7590,8 @@ int selinux_state_create(struct selinux_state *parent,
 		goto err;
 
 	if (parent) {
-		newstate->parent = get_selinux_state(parent);
+		/* Consumes parent reference */
+		newstate->parent = parent;
 		newstate->depth = parent->depth + 1;
 	}
 
