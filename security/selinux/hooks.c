@@ -1440,7 +1440,8 @@ static int inode_doinit_with_dentry(struct inode *inode, struct dentry *opt_dent
 		isec->sclass = inode_mode_to_security_class(inode->i_mode);
 
 	sbsec = selinux_superblock(inode->i_sb);
-	if (!(sbsec->flags & SE_SBINITIALIZED)) {
+	if (!(sbsec->flags & SE_SBINITIALIZED) ||
+		!selinux_initialized(current_selinux_state)) {
 		/* Defer initialization until selinux_complete_init,
 		   after the initial policy is loaded and the security
 		   server is ready to handle calls. */
