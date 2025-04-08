@@ -7748,7 +7748,8 @@ int selinux_state_create(const struct cred *cred)
 	tsec->state = newstate;
 
 	/* Reset the SIDs for the new namespace. */
-	tsec->osid = tsec->sid = SECINITSID_KERNEL;
+	if (parent)
+		tsec->osid = tsec->sid = SECINITSID_INIT;
 	tsec->exec_sid = tsec->create_sid = tsec->keycreate_sid =
 		tsec->sockcreate_sid = SECSID_NULL;
 
@@ -7806,7 +7807,7 @@ static __init int selinux_init(void)
 	 * field to refer to the new state and set the parent
 	 * pointer to the old state value (NULL).
 	 */
-	tsec->sid = SECINITSID_KERNEL;
+	tsec->osid = tsec->sid = SECINITSID_KERNEL;
 	tsec->state = NULL;
 	if (selinux_state_create(cred))
 		panic("SELinux: Could not create initial namespace\n");
