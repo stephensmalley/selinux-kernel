@@ -119,6 +119,11 @@ static int map_global_sid_to_ss(struct selinux_state *state, u32 sid,
 	int rc;
 	char *scontext;
 	u32 scontext_len;
+#if CONFIG_SECURITY_SELINUX_SS_SID_CACHE_SIZE > 0
+	struct sidtab_ss_sid_cache *cache;
+	unsigned long flags;
+	int i, first, last;
+#endif
 
 	if (sid <= SECINITSID_NUM) {
 		*ss_sid = sid;
@@ -136,6 +141,28 @@ static int map_global_sid_to_ss(struct selinux_state *state, u32 sid,
 		rcu_read_unlock();
 		return 0;
 	}
+#if CONFIG_SECURITY_SELINUX_SS_SID_CACHE_SIZE > 0
+	cache = &entry->ss_sid_cache;
+	last = READ_ONCE(cache->last);
+	for (i = READ_ONCE(cache->first); i >= 0 && i <= last; i++) {
+		/*
+		 * Pairs with smp_store_release() on the write side so
+		 * that if we observe this slot's state we also observe
+		 * the ss_sid written before it. Without this a lockless
+		 * reader could see the new state with the previous
+		 * occupant's ss_sid when a full slot is overwritten.
+		 */
+		if (smp_load_acquire(&cache->state[i]) == state) {
+			u32 cached = READ_ONCE(cache->ss_sid[i]);
+
+			if (cached) {
+				*ss_sid = cached;
+				rcu_read_unlock();
+				return 0;
+			}
+		}
+	}
+#endif
 	rcu_read_unlock();
 
 	rc = global_sid_to_context(sid, &scontext, &scontext_len);
@@ -144,8 +171,63 @@ static int map_global_sid_to_ss(struct selinux_state *state, u32 sid,
 
 	rc = selinux_ss_context_to_sid_force(state, scontext,
 					     scontext_len, ss_sid, gfp);
+#if CONFIG_SECURITY_SELINUX_SS_SID_CACHE_SIZE > 0
+	if (rc == 0) {
+		spin_lock_irqsave(&global_sidtab.lock, flags);
+		entry = sidtab_search_entry_force(&global_sidtab, sid);
+		if (!entry) {
+			rc = -EINVAL;
+			goto out_unlock;
+		}
+		cache = &entry->ss_sid_cache;
+		first = cache->first;
+		last = cache->last;
+		/*
+		 * Another thread may have cached this (sid state) while
+		 * we were on the slow path. sidtab_invalidate_state_entry()
+		 * stops at the first match, so a duplicate slot would
+		 * survive namespace teardown with a dangling state pointer.
+		 */
+		for (i = first; i >= 0 && i <= last; i++)
+			if (cache->state[i] == state)
+				goto out_unlock;
+		for (i = 0; i < ARRAY_SIZE(cache->ss_sid) && cache->ss_sid[i];
+		     i++)
+			;
+		if (i >= ARRAY_SIZE(cache->ss_sid)) {
+			/*
+			 * All slots are occupied: round-robin the victim so
+			 * repeated evictions don't keep hitting the same slot.
+			 */
+			i = cache->victim;
+			cache->victim = (i + 1) % ARRAY_SIZE(cache->ss_sid);
+		}
+		WRITE_ONCE(cache->ss_sid[i], *ss_sid);
+		/*
+		 * Publish the slot: pairs with smp_load_acquire() on
+		 * the lockless read side so that a reader observing
+		 * state[i] == state is guaranteed to also observe the
+		 * ss_sid[i] store above, even when overwriting a slot
+		 * that previously held another state's mapping.
+		 */
+		smp_store_release(&cache->state[i], state);
+		/* ensure that state is updated before indices */
+		smp_wmb();
+		if (first == -1 || i < first)
+			WRITE_ONCE(cache->first, i);
+		if (last == -1 || i > last)
+			WRITE_ONCE(cache->last, i);
+out_unlock:
+		spin_unlock_irqrestore(&global_sidtab.lock, flags);
+	}
+#endif
 	kfree(scontext);
 	return rc;
+}
+
+void global_sidtab_invalidate_state(struct selinux_state *state)
+{
+	sidtab_invalidate_state(&global_sidtab, state);
 }
 
 static int map_ss_sid_to_global(struct selinux_state *state, u32 ss_sid,
