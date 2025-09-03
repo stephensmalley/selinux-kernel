@@ -6777,6 +6777,18 @@ static int selinux_lsm_getattr(unsigned int attr, struct task_struct *p,
 	case LSM_ATTR_SOCKCREATE:
 		sid = crsec->sockcreate_sid;
 		break;
+#ifdef CONFIG_SECURITY_SELINUX_NS
+	case LSM_ATTR_UNSHARE:
+		*value = kmalloc(1, GFP_ATOMIC);
+		if (!(*value)) {
+			error = -ENOMEM;
+			goto err_unlock;
+		}
+		**value = !!(crsec->state != init_selinux_state &&
+			     !selinux_initialized(crsec->state));
+		error = 1;
+		goto err_unlock;
+#endif
 	default:
 		error = -EOPNOTSUPP;
 		goto err_unlock;
@@ -6837,6 +6849,12 @@ static int selinux_lsm_setattr(u64 attr, void *value, size_t size)
 		error = avc_has_perm(state, mysid, mysid, SECCLASS_PROCESS,
 				     PROCESS__SETCURRENT, NULL);
 		break;
+#ifdef CONFIG_SECURITY_SELINUX_NS
+	case LSM_ATTR_UNSHARE:
+		error = avc_has_perm(state, mysid, mysid, SECCLASS_PROCESS2,
+				     PROCESS2__UNSHARE_SELINUXNS, NULL);
+		break;
+#endif
 	default:
 		error = -EOPNOTSUPP;
 		break;
@@ -6948,6 +6966,12 @@ static int selinux_lsm_setattr(u64 attr, void *value, size_t size)
 		}
 
 		crsec->sid = sid;
+#ifdef CONFIG_SECURITY_SELINUX_NS
+	} else if (attr == LSM_ATTR_UNSHARE) {
+		error = selinux_state_create(new);
+		if (error)
+			goto abort_change;
+#endif
 	} else {
 		error = -EINVAL;
 		goto abort_change;
