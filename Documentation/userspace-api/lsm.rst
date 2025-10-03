@@ -48,6 +48,17 @@ creating socket objects.
 The proc filesystem provides this value in ``/proc/self/attr/sockcreate``.
 This is supported by the SELinux security module.
 
+``LSM_ATTR_UNSHARE`` is used to unshare the LSM-specific namespace for
+the process.
+When passed to ``lsm_set_self_attr(2)``, the LSM-specific namespace
+for the specified LSM id is immediately unshared in a similar manner
+to the ``unshare(2)`` system call for other Linux namespaces. When
+passed to ``lsm_get_self_attr(2)``, ``ctx->ctx_len`` is set to ``1``
+and ``ctx->ctx[0]`` is set to a boolean (``0`` or ``1``) that
+indicates whether the LSM-specific namespace for the specified LSM id
+has been unshared and not yet fully initialized (e.g. no policy yet
+loaded).
+
 Kernel interface
 ================
 
