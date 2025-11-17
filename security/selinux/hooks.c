@@ -581,16 +581,6 @@ static int sb_finish_set_opts(struct super_block *sb)
 
 	sbsec->flags |= SE_SBINITIALIZED;
 
-	/*
-	 * Explicitly set or clear SBLABEL_MNT.  It's not sufficient to simply
-	 * leave the flag untouched because sb_clone_mnt_opts might be handing
-	 * us a superblock that needs the flag to be cleared.
-	 */
-	if (selinux_is_sblabel_mnt(sb))
-		sbsec->flags |= SBLABEL_MNT;
-	else
-		sbsec->flags &= ~SBLABEL_MNT;
-
 	/* Initialize the root inode. */
 	rc = inode_doinit_with_dentry(root_inode, root);
 
@@ -1141,7 +1131,7 @@ static int selinux_sb_show_options(struct seq_file *m, struct super_block *sb)
 		if (rc)
 			return rc;
 	}
-	if (sbsec->flags & SBLABEL_MNT) {
+	if (selinux_is_sblabel_mnt(sb)) {
 		seq_putc(m, ',');
 		seq_puts(m, SECLABEL_STR);
 	}
@@ -1815,7 +1805,7 @@ selinux_determine_inode_label(const struct task_security_struct *tsec,
 	if ((sbsec->flags & SE_SBINITIALIZED) &&
 	    (sbsec->behavior == SECURITY_FS_USE_MNTPOINT)) {
 		*_new_isid = sbsec->mntpoint_sid;
-	} else if ((sbsec->flags & SBLABEL_MNT) &&
+	} else if (selinux_is_sblabel_mnt(dir->i_sb) &&
 		   tsec->create_sid) {
 		*_new_isid = tsec->create_sid;
 	} else {
@@ -3023,7 +3013,7 @@ static int selinux_inode_init_security(struct inode *inode, struct inode *dir,
 	}
 
 	if (!selinux_initialized(current_selinux_state) ||
-	    !(sbsec->flags & SBLABEL_MNT))
+	    !selinux_is_sblabel_mnt(dir->i_sb))
 		return -EOPNOTSUPP;
 
 	if (xattr) {
@@ -3454,7 +3444,7 @@ static int selinux_inode_setxattr(struct mnt_idmap *idmap,
 		return (inode_owner_or_capable(idmap, inode) ? 0 : -EPERM);
 
 	sbsec = selinux_superblock(inode->i_sb);
-	if (!(sbsec->flags & SBLABEL_MNT))
+	if (!selinux_is_sblabel_mnt(inode->i_sb))
 		return -EOPNOTSUPP;
 
 	if (!inode_owner_or_capable(idmap, inode))
@@ -3722,15 +3712,13 @@ static int selinux_inode_setsecurity(struct inode *inode, const char *name,
 				     const void *value, size_t size, int flags)
 {
 	struct inode_security_struct *isec = inode_security_novalidate(inode);
-	struct superblock_security_struct *sbsec;
 	u32 newsid;
 	int rc;
 
 	if (strcmp(name, XATTR_SELINUX_SUFFIX))
 		return -EOPNOTSUPP;
 
-	sbsec = selinux_superblock(inode->i_sb);
-	if (!(sbsec->flags & SBLABEL_MNT))
+	if (!selinux_is_sblabel_mnt(inode->i_sb))
 		return -EOPNOTSUPP;
 
 	if (!value || !size)
@@ -7105,7 +7093,7 @@ static int selinux_inode_notifysecctx(struct inode *inode, void *ctx, u32 ctxlen
 {
 	int rc = selinux_inode_setsecurity(inode, XATTR_SELINUX_SUFFIX,
 					   ctx, ctxlen, 0);
-	/* Do not return error when suppressing label (SBLABEL_MNT not set). */
+	/* Do not return error when suppressing label. */
 	return rc == -EOPNOTSUPP ? 0 : rc;
 }
 
