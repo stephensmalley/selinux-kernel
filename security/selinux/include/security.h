@@ -63,7 +63,6 @@
 #define FSCONTEXT_MNT	0x02
 #define ROOTCONTEXT_MNT 0x04
 #define DEFCONTEXT_MNT	0x08
-#define SBLABEL_MNT	0x10
 /* Non-mount related flags */
 #define SE_SBINITIALIZED 0x0100
 #define SE_SBPROC	 0x0200
@@ -238,9 +237,9 @@ static inline bool selinux_policycap_alwaysnetwork(void)
 	return READ_ONCE(current_selinux_state->policycap[POLICYDB_CAP_ALWAYSNETWORK]);
 }
 
-static inline bool selinux_policycap_cgroupseclabel(void)
+static inline bool selinux_policycap_cgroupseclabel(struct selinux_state *state)
 {
-	return READ_ONCE(current_selinux_state->policycap[POLICYDB_CAP_CGROUPSECLABEL]);
+	return READ_ONCE(state->policycap[POLICYDB_CAP_CGROUPSECLABEL]);
 }
 
 static inline bool selinux_policycap_nnp_nosuid_transition(void)
@@ -269,9 +268,9 @@ static inline bool selinux_policycap_netlink_xperm(void)
 	return READ_ONCE(current_selinux_state->policycap[POLICYDB_CAP_NETLINK_XPERM]);
 }
 
-static inline bool selinux_policycap_functionfs_seclabel(void)
+static inline bool selinux_policycap_functionfs_seclabel(struct selinux_state *state)
 {
-	return READ_ONCE(current_selinux_state->policycap[POLICYDB_CAP_FUNCTIONFS_SECLABEL]);
+	return READ_ONCE(state->policycap[POLICYDB_CAP_FUNCTIONFS_SECLABEL]);
 }
 
 static inline bool selinux_policycap_memfd_class(void)

@@ -476,7 +476,8 @@ static int may_context_mount_inode_relabel(u32 sid,
 				 FILESYSTEM__ASSOCIATE, NULL);
 }
 
-static int selinux_is_genfs_special_handling(struct super_block *sb)
+static int selinux_is_genfs_special_handling(struct super_block *sb,
+					     struct selinux_state *state)
 {
 	/* Special handling. Genfs but also in-core setxattr handler */
 	return	!strcmp(sb->s_type->name, "sysfs") ||
@@ -484,10 +485,10 @@ static int selinux_is_genfs_special_handling(struct super_block *sb)
 		!strcmp(sb->s_type->name, "debugfs") ||
 		!strcmp(sb->s_type->name, "tracefs") ||
 		!strcmp(sb->s_type->name, "rootfs") ||
-		(selinux_policycap_cgroupseclabel() &&
+		(selinux_policycap_cgroupseclabel(state) &&
 		 (!strcmp(sb->s_type->name, "cgroup") ||
 		  !strcmp(sb->s_type->name, "cgroup2"))) ||
-		(selinux_policycap_functionfs_seclabel() &&
+		(selinux_policycap_functionfs_seclabel(state) &&
 		 !strcmp(sb->s_type->name, "functionfs"));
 }
 
@@ -509,7 +510,8 @@ static int selinux_is_sblabel_mnt(struct super_block *sb)
 		return 1;
 
 	case SECURITY_FS_USE_GENFS:
-		return selinux_is_genfs_special_handling(sb);
+		return selinux_is_genfs_special_handling(sb,
+							current_selinux_state);
 
 	/* Never allow relabeling on context mounts */
 	case SECURITY_FS_USE_MNTPOINT:
@@ -582,16 +584,6 @@ static int sb_finish_set_opts(struct super_block *sb)
 	}
 
 	sbsec->flags |= SE_SBINITIALIZED;
-
-	/*
-	 * Explicitly set or clear SBLABEL_MNT.  It's not sufficient to simply
-	 * leave the flag untouched because sb_clone_mnt_opts might be handing
-	 * us a superblock that needs the flag to be cleared.
-	 */
-	if (selinux_is_sblabel_mnt(sb))
-		sbsec->flags |= SBLABEL_MNT;
-	else
-		sbsec->flags &= ~SBLABEL_MNT;
 
 	/* Initialize the root inode. */
 	rc = inode_doinit_with_dentry(root_inode, root);
@@ -763,7 +755,7 @@ static int selinux_set_mnt_opts(struct super_block *sb,
 	    !strcmp(sb->s_type->name, "bpf") ||
 	    !strcmp(sb->s_type->name, "pstore") ||
 	    !strcmp(sb->s_type->name, "securityfs") ||
-	    (selinux_policycap_functionfs_seclabel() &&
+	    (selinux_policycap_functionfs_seclabel(current_selinux_state) &&
 	     !strcmp(sb->s_type->name, "functionfs")))
 		sbsec->flags |= SE_SBGENFS;
 
@@ -1155,7 +1147,7 @@ static int selinux_sb_show_options(struct seq_file *m, struct super_block *sb)
 		if (rc)
 			return rc;
 	}
-	if (sbsec->flags & SBLABEL_MNT) {
+	if (selinux_is_sblabel_mnt(sb)) {
 		seq_putc(m, ',');
 		seq_puts(m, SECLABEL_STR);
 	}
@@ -1452,6 +1444,7 @@ static int inode_doinit_use_xattr(struct selinux_state *state,
 static int inode_doinit_with_dentry(struct inode *inode, struct dentry *opt_dentry)
 {
 	struct selinux_state *state = current_selinux_state;
+	struct super_block *sb = inode->i_sb;
 	struct superblock_security_struct *sbsec = NULL;
 	struct inode_security_struct *isec = selinux_inode(inode);
 	u32 task_sid, sid = 0;
@@ -1476,7 +1469,7 @@ static int inode_doinit_with_dentry(struct inode *inode, struct dentry *opt_dent
 	while (state && !selinux_initialized(state))
 		state = state->parent;
 
-	sbsec = selinux_superblock(inode->i_sb);
+	sbsec = selinux_superblock(sb);
 	if (!state || !(sbsec->flags & SE_SBINITIALIZED)) {
 		/* Defer initialization until selinux_complete_init,
 		   after the initial policy is loaded and the security
@@ -1596,8 +1589,11 @@ static int inode_doinit_with_dentry(struct inode *inode, struct dentry *opt_dent
 				goto out;
 			}
 
-			if ((sbsec->flags & SE_SBGENFS_XATTR) &&
-			    (inode->i_opflags & IOP_XATTR)) {
+			if ((inode->i_opflags & IOP_XATTR) &&
+			    (!strcmp(sb->s_type->name, "sysfs") ||
+			     (selinux_policycap_cgroupseclabel(state) &&
+			      (!strcmp(sb->s_type->name, "cgroup") ||
+			       !strcmp(sb->s_type->name, "cgroup2"))))) {
 				rc = inode_doinit_use_xattr(state, inode,
 							    dentry, sid,
 							    &sid);
@@ -1864,7 +1860,7 @@ selinux_determine_inode_label(const struct cred_security_struct *crsec,
 	if ((sbsec->flags & SE_SBINITIALIZED) &&
 	    (sbsec->behavior == SECURITY_FS_USE_MNTPOINT)) {
 		*_new_isid = sbsec->mntpoint_sid;
-	} else if ((sbsec->flags & SBLABEL_MNT) &&
+	} else if (selinux_is_sblabel_mnt(dir->i_sb) &&
 		   crsec->create_sid) {
 		*_new_isid = crsec->create_sid;
 	} else {
@@ -3057,10 +3053,8 @@ static int selinux_inode_init_security(struct inode *inode, struct inode *dir,
 	int rc;
 	char *context;
 
-	sbsec = selinux_superblock(dir->i_sb);
-
 	if (!selinux_initialized(current_selinux_state) ||
-	    !(sbsec->flags & SBLABEL_MNT))
+	    !selinux_is_sblabel_mnt(dir->i_sb))
 		return -EOPNOTSUPP;
 
 	newsid = crsec->create_sid;
@@ -3070,6 +3064,7 @@ static int selinux_inode_init_security(struct inode *inode, struct inode *dir,
 		return rc;
 
 	/* Possibly defer initialization to selinux_complete_init. */
+	sbsec = selinux_superblock(dir->i_sb);
 	if (sbsec->flags & SE_SBINITIALIZED) {
 		struct inode_security_struct *isec = selinux_inode(inode);
 		isec->sclass = newsclass;
@@ -3078,7 +3073,7 @@ static int selinux_inode_init_security(struct inode *inode, struct inode *dir,
 	}
 
 	if (!selinux_initialized(current_selinux_state) ||
-	    !(sbsec->flags & SBLABEL_MNT))
+	    !selinux_is_sblabel_mnt(dir->i_sb))
 		return -EOPNOTSUPP;
 
 	xattr = lsm_get_xattr_slot(xattrs, xattr_count);
@@ -3511,7 +3506,7 @@ static int selinux_inode_setxattr(struct mnt_idmap *idmap,
 		return (inode_owner_or_capable(idmap, inode) ? 0 : -EPERM);
 
 	sbsec = selinux_superblock(inode->i_sb);
-	if (!(sbsec->flags & SBLABEL_MNT))
+	if (!selinux_is_sblabel_mnt(inode->i_sb))
 		return -EOPNOTSUPP;
 
 	if (!inode_owner_or_capable(idmap, inode))
@@ -3780,15 +3775,13 @@ static int selinux_inode_setsecurity(struct inode *inode, const char *name,
 				     const void *value, size_t size, int flags)
 {
 	struct inode_security_struct *isec = inode_security_novalidate(inode);
-	struct superblock_security_struct *sbsec;
 	u32 newsid;
 	int rc;
 
 	if (strcmp(name, XATTR_SELINUX_SUFFIX))
 		return -EOPNOTSUPP;
 
-	sbsec = selinux_superblock(inode->i_sb);
-	if (!(sbsec->flags & SBLABEL_MNT))
+	if (!selinux_is_sblabel_mnt(inode->i_sb))
 		return -EOPNOTSUPP;
 
 	if (!value || !size)
@@ -7367,7 +7360,7 @@ static int selinux_inode_notifysecctx(struct inode *inode, void *ctx, u32 ctxlen
 {
 	int rc = selinux_inode_setsecurity(inode, XATTR_SELINUX_SUFFIX,
 					   ctx, ctxlen, 0);
-	/* Do not return error when suppressing label (SBLABEL_MNT not set). */
+	/* Do not return error when suppressing label. */
 	return rc == -EOPNOTSUPP ? 0 : rc;
 }
 
