@@ -761,7 +761,7 @@ static int selinux_set_mnt_opts(struct super_block *sb,
 	if (!strcmp(sb->s_type->name, "sysfs") ||
 	    !strcmp(sb->s_type->name, "cgroup") ||
 	    !strcmp(sb->s_type->name, "cgroup2"))
-		sbsec->flags |= SE_SBGENFS | SE_SBGENFS_XATTR;
+		sbsec->flags |= SE_SBGENFS;
 
 	if (!sbsec->behavior) {
 		/*
@@ -1443,6 +1443,7 @@ static int inode_doinit_use_xattr(struct selinux_state *state,
 static int inode_doinit_with_dentry(struct inode *inode, struct dentry *opt_dentry)
 {
 	struct selinux_state *state = current_selinux_state;
+	struct super_block *sb = inode->i_sb;
 	struct superblock_security_struct *sbsec = NULL;
 	struct inode_security_struct *isec = selinux_inode(inode);
 	u32 task_sid, sid = 0;
@@ -1467,7 +1468,7 @@ static int inode_doinit_with_dentry(struct inode *inode, struct dentry *opt_dent
 	while (state && !selinux_initialized(state))
 		state = state->parent;
 
-	sbsec = selinux_superblock(inode->i_sb);
+	sbsec = selinux_superblock(sb);
 	if (!state || !(sbsec->flags & SE_SBINITIALIZED)) {
 		/* Defer initialization until selinux_complete_init,
 		   after the initial policy is loaded and the security
@@ -1587,8 +1588,11 @@ static int inode_doinit_with_dentry(struct inode *inode, struct dentry *opt_dent
 				goto out;
 			}
 
-			if ((sbsec->flags & SE_SBGENFS_XATTR) &&
-			    (inode->i_opflags & IOP_XATTR)) {
+			if ((inode->i_opflags & IOP_XATTR) &&
+			    (!strcmp(sb->s_type->name, "sysfs") ||
+			     (selinux_policycap_cgroupseclabel() &&
+			      (!strcmp(sb->s_type->name, "cgroup") ||
+			       !strcmp(sb->s_type->name, "cgroup2"))))) {
 				rc = inode_doinit_use_xattr(state, inode,
 							    dentry, sid,
 							    &sid);
