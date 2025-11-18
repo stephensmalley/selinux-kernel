@@ -3837,8 +3837,13 @@ static int selinux_kernfs_init_security(struct kernfs_node *kn_dir,
 	rc = security_context_to_sid(current_selinux_state, context, clen,
 				     &parent_sid, GFP_KERNEL);
 	kfree(context);
-	if (rc)
+	if (rc) {
+		if (rc == -EINVAL &&
+			current_selinux_state != init_selinux_state) {
+			return 0;
+		}
 		return rc;
+	}
 
 	if (crsec->create_sid) {
 		newsid = crsec->create_sid;
