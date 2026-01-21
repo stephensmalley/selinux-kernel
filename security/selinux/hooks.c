@@ -3053,10 +3053,8 @@ static int selinux_inode_init_security(struct inode *inode, struct inode *dir,
 	int rc;
 	char *context;
 
-	sbsec = selinux_superblock(dir->i_sb);
-
 	if (!selinux_initialized(current_selinux_state) ||
-	    !(sbsec->flags & SBLABEL_MNT))
+	    !selinux_is_sblabel_mnt(dir->i_sb))
 		return -EOPNOTSUPP;
 
 	newsid = crsec->create_sid;
@@ -3066,16 +3064,13 @@ static int selinux_inode_init_security(struct inode *inode, struct inode *dir,
 		return rc;
 
 	/* Possibly defer initialization to selinux_complete_init. */
+	sbsec = selinux_superblock(dir->i_sb);
 	if (sbsec->flags & SE_SBINITIALIZED) {
 		struct inode_security_struct *isec = selinux_inode(inode);
 		isec->sclass = newsclass;
 		isec->sid = newsid;
 		isec->initialized = LABEL_INITIALIZED;
 	}
-
-	if (!selinux_initialized(current_selinux_state) ||
-	    !selinux_is_sblabel_mnt(dir->i_sb))
-		return -EOPNOTSUPP;
 
 	xattr = lsm_get_xattr_slot(xattrs, xattr_count);
 	if (xattr) {
@@ -7634,8 +7629,9 @@ static int selinux_bpf_map_create(struct bpf_map *map, union bpf_attr *attr,
 	else
 		ssid = selinux_bpf_token_security(token)->grantor_sid;
 
-	return avc_has_perm(current_selinux_state, ssid, bpfsec->sid,
-			    SECCLASS_BPF, BPF__MAP_CREATE, NULL);
+	return cred_ssid_has_perm(current_cred(), ssid, bpfsec->sid,
+				SECCLASS_BPF, BPF__MAP_CREATE,
+				NULL);
 }
 
 static int selinux_bpf_prog_load(struct bpf_prog *prog, union bpf_attr *attr,
@@ -7652,8 +7648,9 @@ static int selinux_bpf_prog_load(struct bpf_prog *prog, union bpf_attr *attr,
 	else
 		ssid = selinux_bpf_token_security(token)->grantor_sid;
 
-	return avc_has_perm(current_selinux_state, ssid, bpfsec->sid,
-			    SECCLASS_BPF, BPF__PROG_LOAD, NULL);
+	return cred_ssid_has_perm(current_cred(), ssid, bpfsec->sid,
+				SECCLASS_BPF, BPF__PROG_LOAD,
+				NULL);
 }
 
 #define bpf_token_cmd(T, C) \
@@ -7680,17 +7677,17 @@ static int selinux_bpf_token_create(struct bpf_token *token,
 	 * in the allowed_cmds bitmap.
 	 */
 	if (bpf_token_cmd(token, BPF_MAP_CREATE)) {
-		err = avc_has_perm(current_selinux_state, bpfsec->sid,
-				   bpfsec->grantor_sid, SECCLASS_BPF,
-				   BPF__MAP_CREATE_AS, NULL);
+		err = cred_ssid_has_perm(current_cred(), bpfsec->sid,
+					bpfsec->grantor_sid, SECCLASS_BPF,
+					BPF__MAP_CREATE_AS, NULL);
 		if (err)
 			return err;
 		bpfsec->perms |= BPF__MAP_CREATE;
 	}
 	if (bpf_token_cmd(token, BPF_PROG_LOAD)) {
-		err = avc_has_perm(current_selinux_state, bpfsec->sid,
-				   bpfsec->grantor_sid, SECCLASS_BPF,
-				   BPF__PROG_LOAD_AS, NULL);
+		err = cred_ssid_has_perm(current_cred(), bpfsec->sid,
+					bpfsec->grantor_sid, SECCLASS_BPF,
+					BPF__PROG_LOAD_AS, NULL);
 		if (err)
 			return err;
 		bpfsec->perms |= BPF__PROG_LOAD;
@@ -7740,8 +7737,8 @@ static int selinux_bpf_token_capable(const struct bpf_token *token, int cap)
 		return -EINVAL;
 	}
 
-	return avc_has_perm(current_selinux_state, current_sid(),
-			    bpfsec->grantor_sid, sclass, av, NULL);
+	return cred_tsid_has_perm(current_cred(), bpfsec->grantor_sid, sclass,
+				av, NULL);
 }
 #endif
 
