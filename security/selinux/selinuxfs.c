@@ -817,7 +817,7 @@ static ssize_t sel_write_context(struct file *file, char *buf, size_t size)
 {
 	struct selinux_fs_info *fsi = file_inode(file)->i_sb->s_fs_info;
 	struct selinux_state *state = fsi->state;
-	char *canon = NULL;
+	const char *canon = NULL;
 	u32 sid, len;
 	ssize_t length;
 
@@ -835,21 +835,23 @@ static ssize_t sel_write_context(struct file *file, char *buf, size_t size)
 	if (length)
 		goto out;
 
+	rcu_read_lock();
 	length = selinux_ss_sid_to_context(state, sid, &canon, &len);
 	if (length)
-		goto out;
+		goto out_unlock;
 
 	length = -ERANGE;
 	if (len > SIMPLE_TRANSACTION_LIMIT) {
 		pr_err("SELinux: %s:  context size (%u) exceeds "
 			"payload max\n", __func__, len);
-		goto out;
+		goto out_unlock;
 	}
 
 	memcpy(buf, canon, len);
 	length = len;
+out_unlock:
+	rcu_read_unlock();
 out:
-	kfree(canon);
 	return length;
 }
 
@@ -1130,7 +1132,7 @@ static ssize_t sel_write_create(struct file *file, char *buf, size_t size)
 	u32 ssid, tsid, newsid;
 	u16 tclass;
 	ssize_t length;
-	char *newcon = NULL;
+	const char *newcon = NULL;
 	u32 len;
 	int nargs;
 
@@ -1208,21 +1210,23 @@ static ssize_t sel_write_create(struct file *file, char *buf, size_t size)
 	if (length)
 		goto out;
 
+	rcu_read_lock();
 	length = selinux_ss_sid_to_context(state, newsid, &newcon, &len);
 	if (length)
-		goto out;
+		goto out_unlock;
 
 	length = -ERANGE;
 	if (len > SIMPLE_TRANSACTION_LIMIT) {
 		pr_err("SELinux: %s:  context size (%u) exceeds "
 			"payload max\n", __func__, len);
-		goto out;
+		goto out_unlock;
 	}
 
 	memcpy(buf, newcon, len);
 	length = len;
+out_unlock:
+	rcu_read_unlock();
 out:
-	kfree(newcon);
 	kfree(namebuf);
 	kfree(tcon);
 	kfree(scon);
@@ -1237,7 +1241,7 @@ static ssize_t sel_write_relabel(struct file *file, char *buf, size_t size)
 	u32 ssid, tsid, newsid;
 	u16 tclass;
 	ssize_t length;
-	char *newcon = NULL;
+	const char *newcon = NULL;
 	u32 len;
 
 	/*
@@ -1277,18 +1281,20 @@ static ssize_t sel_write_relabel(struct file *file, char *buf, size_t size)
 	if (length)
 		goto out;
 
+	rcu_read_lock();
 	length = selinux_ss_sid_to_context(state, newsid, &newcon, &len);
 	if (length)
-		goto out;
+		goto out_unlock;
 
 	length = -ERANGE;
 	if (len > SIMPLE_TRANSACTION_LIMIT)
-		goto out;
+		goto out_unlock;
 
 	memcpy(buf, newcon, len);
 	length = len;
+out_unlock:
+	rcu_read_unlock();
 out:
-	kfree(newcon);
 	kfree(tcon);
 	kfree(scon);
 	return length;
@@ -1301,7 +1307,7 @@ static ssize_t sel_write_user(struct file *file, char *buf, size_t size)
 	char *con = NULL, *user = NULL, *ptr;
 	u32 sid, *sids = NULL;
 	ssize_t length;
-	char *newcon;
+	const char *newcon;
 	int rc;
 	u32 i, len, nsids;
 
@@ -1345,22 +1351,23 @@ static ssize_t sel_write_user(struct file *file, char *buf, size_t size)
 
 	length = sprintf(buf, "%u", nsids) + 1;
 	ptr = buf + length;
+	rcu_read_lock();
 	for (i = 0; i < nsids; i++) {
 		rc = selinux_ss_sid_to_context(state, sids[i], &newcon, &len);
 		if (rc) {
 			length = rc;
-			goto out;
+			goto out_unlock;
 		}
 		if ((length + len) >= SIMPLE_TRANSACTION_LIMIT) {
-			kfree(newcon);
 			length = -ERANGE;
-			goto out;
+			goto out_unlock;
 		}
 		memcpy(ptr, newcon, len);
-		kfree(newcon);
 		ptr += len;
 		length += len;
 	}
+out_unlock:
+	rcu_read_unlock();
 out:
 	kfree(sids);
 	kfree(user);
@@ -1376,7 +1383,7 @@ static ssize_t sel_write_member(struct file *file, char *buf, size_t size)
 	u32 ssid, tsid, newsid;
 	u16 tclass;
 	ssize_t length;
-	char *newcon = NULL;
+	const char *newcon = NULL;
 	u32 len;
 
 	/*
@@ -1416,21 +1423,23 @@ static ssize_t sel_write_member(struct file *file, char *buf, size_t size)
 	if (length)
 		goto out;
 
+	rcu_read_lock();
 	length = selinux_ss_sid_to_context(state, newsid, &newcon, &len);
 	if (length)
-		goto out;
+		goto out_unlock;
 
 	length = -ERANGE;
 	if (len > SIMPLE_TRANSACTION_LIMIT) {
 		pr_err("SELinux: %s:  context size (%u) exceeds "
 			"payload max\n", __func__, len);
-		goto out;
+		goto out_unlock;
 	}
 
 	memcpy(buf, newcon, len);
 	length = len;
+out_unlock:
+	rcu_read_unlock();
 out:
-	kfree(newcon);
 	kfree(tcon);
 	kfree(scon);
 	return length;
@@ -1931,17 +1940,28 @@ static ssize_t sel_read_initcon(struct file *file, char __user *buf,
 				size_t count, loff_t *ppos)
 {
 	struct selinux_fs_info *fsi = file_inode(file)->i_sb->s_fs_info;
-	char *con;
+	const char *con;
+	char *con2;
 	u32 sid, len;
 	ssize_t ret;
 
 	sid = file_inode(file)->i_ino&SEL_INO_MASK;
+	rcu_read_lock();
 	ret = selinux_ss_sid_to_context(fsi->state, sid, &con, &len);
 	if (ret)
-		return ret;
+		goto err;
+	con2 = kmemdup(con, len, GFP_ATOMIC);
+	if (!con2) {
+		ret = -ENOMEM;
+		goto err;
+	}
+	rcu_read_unlock();
 
-	ret = simple_read_from_buffer(buf, count, ppos, con, len);
-	kfree(con);
+	ret = simple_read_from_buffer(buf, count, ppos, con2, len);
+	kfree(con2);
+	return ret;
+err:
+	rcu_read_unlock();
 	return ret;
 }
 

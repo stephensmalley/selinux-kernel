@@ -37,13 +37,13 @@ int selinux_ss_change_sid(struct selinux_state *state, u32 ssid, u32 tsid,
 			  u16 tclass, u32 *out_sid);
 
 int selinux_ss_sid_to_context(struct selinux_state *state, u32 sid,
-			      char **scontext, u32 *scontext_len);
+			      const char **scontext, u32 *scontext_len);
 
 int selinux_ss_sid_to_context_force(struct selinux_state *state, u32 sid,
-				    char **scontext, u32 *scontext_len);
+				    const char **scontext, u32 *scontext_len);
 
 int selinux_ss_sid_to_context_inval(struct selinux_state *state, u32 sid,
-				    char **scontext, u32 *scontext_len);
+				    const char **scontext, u32 *scontext_len);
 
 int selinux_ss_context_to_sid(struct selinux_state *state, const char *scontext,
 			      u32 scontext_len, u32 *out_sid, gfp_t gfp);

@@ -362,16 +362,16 @@ int security_transition_sid(struct selinux_state *state, u32 ssid, u32 tsid,
 			    u16 tclass, const struct qstr *qstr, u32 *out_sid);
 
 int security_sid_to_context(struct selinux_state *state, u32 sid,
-			    char **scontext, u32 *scontext_len);
+			    const char **scontext, u32 *scontext_len);
 
 int security_sid_to_context_valid(struct selinux_state *state, u32 sid,
-				  char **scontext, u32 *scontext_len);
+				  const char **scontext, u32 *scontext_len);
 
 int security_sid_to_context_force(struct selinux_state *state, u32 sid,
-				  char **scontext, u32 *scontext_len);
+				  const char **scontext, u32 *scontext_len);
 
 int security_sid_to_context_inval(struct selinux_state *state, u32 sid,
-				  char **scontext, u32 *scontext_len);
+				  const char **scontext, u32 *scontext_len);
 
 int security_context_to_sid(struct selinux_state *state, const char *scontext,
 			    u32 scontext_len, u32 *out_sid, gfp_t gfp);
@@ -444,20 +444,20 @@ static inline int security_transition_sid(struct selinux_state *state, u32 ssid,
 }
 
 static inline int security_sid_to_context(struct selinux_state *state, u32 sid,
-					  char **scontext, u32 *scontext_len)
+					  const char **scontext, u32 *scontext_len)
 {
 	return selinux_ss_sid_to_context(state, sid, scontext, scontext_len);
 }
 
 static inline int security_sid_to_context_valid(struct selinux_state *state,
-						u32 sid, char **scontext,
+						u32 sid, const char **scontext,
 						u32 *scontext_len)
 {
 	return selinux_ss_sid_to_context(state, sid, scontext, scontext_len);
 }
 
 static inline int security_sid_to_context_force(struct selinux_state *state,
-						u32 sid, char **scontext,
+						u32 sid, const char **scontext,
 						u32 *scontext_len)
 {
 	return selinux_ss_sid_to_context_force(state, sid, scontext,
@@ -465,7 +465,7 @@ static inline int security_sid_to_context_force(struct selinux_state *state,
 }
 
 static inline int security_sid_to_context_inval(struct selinux_state *state,
-						u32 sid, char **scontext,
+						u32 sid, const char **scontext,
 						u32 *scontext_len)
 {
 	return selinux_ss_sid_to_context_inval(state, sid, scontext,

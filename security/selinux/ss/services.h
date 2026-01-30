@@ -45,4 +45,9 @@ int services_convert_context(struct convert_context_args *args,
 			     struct context *oldc, struct context *newc,
 			     gfp_t gfp_flags);
 
+int context_struct_to_string(struct policydb *policydb,
+				    struct context *context,
+				    const char **scontext,
+				    u32 *scontext_len);
+
 #endif /* _SS_SERVICES_H_ */

@@ -32,9 +32,6 @@ struct sidtab_entry {
 	u32 sid;
 	u32 hash;
 	struct context context;
-#if CONFIG_SECURITY_SELINUX_SID2STR_CACHE_SIZE > 0
-	struct sidtab_str_cache __rcu *cache;
-#endif
 	struct hlist_node list;
 #ifdef CONFIG_SECURITY_SELINUX_NS
 	u32 ss_sid;
@@ -107,13 +104,6 @@ struct sidtab {
 	bool frozen;
 	spinlock_t lock;
 
-#if CONFIG_SECURITY_SELINUX_SID2STR_CACHE_SIZE > 0
-	/* SID -> context string cache */
-	u32 cache_free_slots;
-	struct list_head cache_lru_list;
-	spinlock_t cache_lock;
-#endif
-
 	/* index == SID - 1 (no entry for SECSID_NULL) */
 	struct sidtab_isid_entry isids[SECINITSID_NUM];
 
@@ -159,25 +149,6 @@ int sidtab_context_ss_to_sid(struct sidtab *s, struct context *context,
 void sidtab_destroy(struct sidtab *s);
 
 int sidtab_hash_stats(struct sidtab *sidtab, char *page);
-
-#if CONFIG_SECURITY_SELINUX_SID2STR_CACHE_SIZE > 0
-void sidtab_sid2str_put(struct sidtab *s, struct sidtab_entry *entry,
-			const char *str, u32 str_len);
-int sidtab_sid2str_get(struct sidtab *s, struct sidtab_entry *entry, char **out,
-		       u32 *out_len);
-#else
-static inline void sidtab_sid2str_put(struct sidtab *s,
-				      struct sidtab_entry *entry,
-				      const char *str, u32 str_len)
-{
-}
-static inline int sidtab_sid2str_get(struct sidtab *s,
-				     struct sidtab_entry *entry, char **out,
-				     u32 *out_len)
-{
-	return -ENOENT;
-}
-#endif /* CONFIG_SECURITY_SELINUX_SID2STR_CACHE_SIZE > 0 */
 
 #ifdef CONFIG_SECURITY_SELINUX_NS
 extern void sidtab_invalidate_state(struct sidtab *s,
