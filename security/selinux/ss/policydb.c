@@ -1065,6 +1065,8 @@ static int context_read_and_validate(struct context *c, struct policydb *p,
 {
 	__le32 buf[3];
 	int rc;
+	const char *str = NULL;
+	u32 str_len = 0;
 
 	rc = next_entry(buf, fp, sizeof buf);
 	if (rc) {
@@ -1088,7 +1090,13 @@ static int context_read_and_validate(struct context *c, struct policydb *p,
 		context_destroy(c);
 		goto out;
 	}
-	rc = 0;
+	rc = context_struct_to_string(p, c, &str, &str_len);
+	if (rc) {
+		context_destroy(c);
+		goto out;
+	}
+	c->str = str;
+	c->len = str_len;
 out:
 	return rc;
 }

@@ -348,7 +348,7 @@ int selinux_xfrm_state_alloc_acquire(struct xfrm_state *x,
 	struct selinux_state *state = init_selinux_state;
 	int rc;
 	struct xfrm_sec_ctx *ctx;
-	char *ctx_str = NULL;
+	const char *ctx_str = NULL;
 	u32 str_len;
 
 	if (!polsec)
@@ -357,9 +357,10 @@ int selinux_xfrm_state_alloc_acquire(struct xfrm_state *x,
 	if (secid == 0)
 		return -EINVAL;
 
+	rcu_read_lock();
 	rc = security_sid_to_context(state, secid, &ctx_str, &str_len);
 	if (rc)
-		return rc;
+		goto out;
 
 	ctx = kmalloc_flex(*ctx, ctx_str, str_len, GFP_ATOMIC);
 	if (!ctx) {
@@ -376,7 +377,7 @@ int selinux_xfrm_state_alloc_acquire(struct xfrm_state *x,
 	x->security = ctx;
 	atomic_inc(&selinux_xfrm_refcount);
 out:
-	kfree(ctx_str);
+	rcu_read_unlock();
 	return rc;
 }
 

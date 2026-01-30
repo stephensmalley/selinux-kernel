@@ -1076,10 +1076,11 @@ err:
 
 static int show_sid(struct seq_file *m, u32 sid)
 {
-	char *context = NULL;
+	const char *context = NULL;
 	u32 len;
 	int rc;
 
+	rcu_read_lock();
 	rc = security_sid_to_context(current_selinux_state, sid,
 					     &context, &len);
 	if (!rc) {
@@ -1092,7 +1093,7 @@ static int show_sid(struct seq_file *m, u32 sid)
 		if (has_comma)
 			seq_putc(m, '\"');
 	}
-	kfree(context);
+	rcu_read_unlock();
 	return rc;
 }
 
@@ -2959,6 +2960,7 @@ static int selinux_dentry_init_security(struct dentry *dentry, int mode,
 {
 	u32 newsid;
 	int rc;
+	const char *ctx;
 
 	rc = selinux_determine_inode_label(selinux_cred(current_cred()),
 					   d_inode(dentry->d_parent), name,
@@ -2971,8 +2973,19 @@ static int selinux_dentry_init_security(struct dentry *dentry, int mode,
 		*xattr_name = XATTR_NAME_SELINUX;
 
 	cp->id = LSM_ID_SELINUX;
-	return security_sid_to_context(current_selinux_state, newsid,
-				       &cp->context, &cp->len);
+	rcu_read_lock();
+	rc = security_sid_to_context(current_selinux_state, newsid,
+				       &ctx, &cp->len);
+	if (rc)
+		goto out_unlock;
+
+	cp->context = kmemdup(ctx, cp->len, GFP_ATOMIC);
+	if (!cp->context)
+		rc = ENOMEM;
+
+out_unlock:
+	rcu_read_unlock();
+	return rc;
 }
 
 static int selinux_dentry_create_files_as(struct dentry *dentry, int mode,
@@ -3006,7 +3019,8 @@ static int selinux_inode_init_security(struct inode *inode, struct inode *dir,
 	u32 newsid, clen;
 	u16 newsclass;
 	int rc;
-	char *context;
+	const char *context;
+	char *value;
 
 	sbsec = selinux_superblock(dir->i_sb);
 
@@ -3028,17 +3042,27 @@ static int selinux_inode_init_security(struct inode *inode, struct inode *dir,
 	    !selinux_is_sblabel_mnt(dir->i_sb))
 		return -EOPNOTSUPP;
 
+	rcu_read_lock();
 	if (xattr) {
 		rc = security_sid_to_context_force(current_selinux_state, newsid,
 						   &context, &clen);
 		if (rc)
-			return rc;
-		xattr->value = context;
+			goto out_unlock;
+
+		value = kmemdup(context, clen, GFP_ATOMIC);
+		if (!(value)) {
+			rc = -ENOMEM;
+			goto out_unlock;
+		}
+
+		xattr->value = value;
 		xattr->value_len = clen;
 		xattr->name = XATTR_SELINUX_SUFFIX;
 	}
 
-	return 0;
+out_unlock:
+	rcu_read_unlock();
+	return rc;
 }
 
 static int selinux_inode_init_security_anon(struct inode *inode,
@@ -3682,7 +3706,7 @@ static int selinux_inode_getsecurity(struct mnt_idmap *idmap,
 {
 	u32 size;
 	int error;
-	char *context = NULL;
+	const char *context = NULL;
 	struct inode_security_struct *isec;
 
 	/*
@@ -3703,6 +3727,7 @@ static int selinux_inode_getsecurity(struct mnt_idmap *idmap,
 	 * in-core context value, not a denial.
 	 */
 	isec = inode_security(inode);
+	rcu_read_lock();
 	if (has_cap_mac_admin(false))
 		error = security_sid_to_context_force(current_selinux_state,
 						      isec->sid, &context,
@@ -3711,14 +3736,16 @@ static int selinux_inode_getsecurity(struct mnt_idmap *idmap,
 		error = security_sid_to_context_valid(current_selinux_state, isec->sid,
 						&context, &size);
 	if (error)
-		return error;
+		goto out_unlock;
 	error = size;
 	if (alloc) {
-		*buffer = context;
-		goto out_nofree;
+		*buffer = kmemdup(context, size, GFP_ATOMIC);
+		if (!(*buffer))
+			error = -ENOMEM;
 	}
-	kfree(context);
-out_nofree:
+
+out_unlock:
+	rcu_read_unlock();
 	return error;
 }
 
@@ -3816,6 +3843,7 @@ static int selinux_kernfs_init_security(struct kernfs_node *kn_dir,
 	u32 parent_sid, newsid, clen;
 	int rc;
 	char *context;
+	const char *context2;
 
 	rc = kernfs_xattr_get(kn_dir, XATTR_NAME_SELINUX, NULL, 0);
 	if (rc == -ENODATA)
@@ -3834,9 +3862,13 @@ static int selinux_kernfs_init_security(struct kernfs_node *kn_dir,
 		return rc;
 	}
 
-	rc = security_context_to_sid(current_selinux_state, context, clen,
+	context2 = kmemdup(context, clen, GFP_KERNEL);
+	if (!context2)
+		return -ENOMEM;
+	rc = security_context_to_sid(current_selinux_state, context2, clen,
 				     &parent_sid, GFP_KERNEL);
 	kfree(context);
+	kfree(context2);
 	if (rc) {
 		if (rc == -EINVAL &&
 			current_selinux_state != init_selinux_state) {
@@ -3864,14 +3896,26 @@ static int selinux_kernfs_init_security(struct kernfs_node *kn_dir,
 			return rc;
 	}
 
+	rcu_read_lock();
 	rc = security_sid_to_context_force(current_selinux_state, newsid,
-					   &context, &clen);
+					   &context2, &clen);
 	if (rc)
-		return rc;
+		goto err_unlock;
+
+	context = kmemdup(context2, clen, GFP_ATOMIC);
+	if (!context2) {
+		rc = -ENOMEM;
+		goto err_unlock;
+	}
+	rcu_read_unlock();
 
 	rc = kernfs_xattr_set(kn, XATTR_NAME_SELINUX, context, clen,
 			      XATTR_CREATE);
 	kfree(context);
+	return rc;
+
+err_unlock:
+	rcu_read_unlock();
 	return rc;
 }
 
@@ -5534,7 +5578,8 @@ static int selinux_socket_getpeersec_stream(struct socket *sock,
 					    unsigned int len)
 {
 	int err = 0;
-	char *scontext = NULL;
+	const char *scontext = NULL;
+	char *scontext2;
 	u32 scontext_len;
 	struct sk_security_struct *sksec = selinux_sock(sock->sk);
 	u32 peer_sid = SECSID_NULL;
@@ -5546,21 +5591,31 @@ static int selinux_socket_getpeersec_stream(struct socket *sock,
 	if (peer_sid == SECSID_NULL)
 		return -ENOPROTOOPT;
 
+	rcu_read_lock();
 	err = security_sid_to_context(current_selinux_state, peer_sid, &scontext,
 				      &scontext_len);
 	if (err)
-		return err;
+		goto err_unlock;
+	scontext2 = kmemdup(scontext, scontext_len, GFP_ATOMIC);
+	if (!scontext2) {
+		err = -ENOMEM;
+		goto err_unlock;
+	}
+	rcu_read_unlock();
 	if (scontext_len > len) {
 		err = -ERANGE;
 		goto out_len;
 	}
 
-	if (copy_to_sockptr(optval, scontext, scontext_len))
+	if (copy_to_sockptr(optval, scontext2, scontext_len))
 		err = -EFAULT;
 out_len:
+	kfree(scontext2);
 	if (copy_to_sockptr(optlen, &scontext_len, sizeof(scontext_len)))
 		err = -EFAULT;
-	kfree(scontext);
+	return err;
+err_unlock:
+	rcu_read_unlock();
 	return err;
 }
 
@@ -6750,6 +6805,7 @@ static int selinux_lsm_getattr(unsigned int attr, struct task_struct *p,
 			       char **value)
 {
 	const struct cred_security_struct *crsec;
+	const char *ctx;
 	int error;
 	u32 sid;
 	u32 len;
@@ -6798,17 +6854,20 @@ static int selinux_lsm_getattr(unsigned int attr, struct task_struct *p,
 		error = -EOPNOTSUPP;
 		goto err_unlock;
 	}
-	rcu_read_unlock();
 
 	if (sid == SECSID_NULL) {
 		*value = NULL;
-		return 0;
+		goto err_unlock;
 	}
 
-	error = security_sid_to_context(current_selinux_state, sid, value, &len);
+	error = security_sid_to_context(current_selinux_state, sid, &ctx, &len);
 	if (error)
-		return error;
-	return len;
+		goto err_unlock;
+	*value = kmemdup(ctx, len, GFP_ATOMIC);
+	if (!*value)
+		error = -ENOMEM;
+	else
+		error = len;
 
 err_unlock:
 	rcu_read_unlock();
@@ -7062,13 +7121,19 @@ static int selinux_secid_to_secctx(u32 secid, struct lsm_context *cp)
 {
 	u32 seclen;
 	int ret;
+	const char *ctx;
 
 	if (cp) {
+		rcu_read_lock();
 		cp->id = LSM_ID_SELINUX;
 		ret = security_sid_to_context(current_selinux_state, secid,
-					      &cp->context, &cp->len);
+					      &ctx, &cp->len);
 		if (ret < 0)
-			return ret;
+			goto err_unlock;
+		cp->context = kmemdup(ctx, cp->len, GFP_ATOMIC);
+		rcu_read_unlock();
+		if (!cp->context)
+			return -ENOMEM;
 		return cp->len;
 	}
 	ret = security_sid_to_context(current_selinux_state, secid, NULL,
@@ -7076,6 +7141,10 @@ static int selinux_secid_to_secctx(u32 secid, struct lsm_context *cp)
 	if (ret < 0)
 		return ret;
 	return seclen;
+
+err_unlock:
+	rcu_read_unlock();
+	return ret;
 }
 
 static int selinux_lsmprop_to_secctx(struct lsm_prop *prop,
@@ -7204,15 +7273,19 @@ static int selinux_key_permission(key_ref_t key_ref,
 static int selinux_key_getsecurity(struct key *key, char **_buffer)
 {
 	struct key_security_struct *ksec = selinux_key(key);
-	char *context = NULL;
+	const char *context = NULL;
 	unsigned len;
 	int rc;
 
+	rcu_read_lock();
 	rc = security_sid_to_context(current_selinux_state, ksec->sid,
 				     &context, &len);
 	if (!rc)
 		rc = len;
-	*_buffer = context;
+	*_buffer = kmemdup(context, len, GFP_ATOMIC);
+	rcu_read_unlock();
+	if (!(*_buffer))
+		return -ENOMEM;
 	return rc;
 }
 

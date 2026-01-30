@@ -31,7 +31,7 @@ struct context {
 	u32 type;
 	u32 len; /* length of string in bytes */
 	struct mls_range range;
-	char *str; /* string representation if context cannot be mapped. */
+	const char *str; /* string representation */
 };
 
 static inline void mls_context_init(struct context *c)
@@ -160,15 +160,10 @@ static inline int context_cpy(struct context *dst, const struct context *src)
 	dst->user = src->user;
 	dst->role = src->role;
 	dst->type = src->type;
-	if (src->str) {
-		dst->str = kstrdup(src->str, GFP_ATOMIC);
-		if (!dst->str)
-			return -ENOMEM;
-		dst->len = src->len;
-	} else {
-		dst->str = NULL;
-		dst->len = 0;
-	}
+	dst->str = kstrdup(src->str, GFP_ATOMIC);
+	if (!dst->str)
+		return -ENOMEM;
+	dst->len = src->len;
 	rc = mls_context_cpy(dst, src);
 	if (rc) {
 		kfree(dst->str);
@@ -191,9 +186,9 @@ static inline void context_destroy(struct context *c)
 static inline bool context_equal(const struct context *c1,
 				 const struct context *c2)
 {
-	if (c1->len && c2->len)
+	if (!c1->user && !c2->user)
 		return (c1->len == c2->len && !strcmp(c1->str, c2->str));
-	if (c1->len || c2->len)
+	if (!c1->user || !c2->user)
 		return 0;
 	return ((c1->user == c2->user) && (c1->role == c2->role) &&
 		(c1->type == c2->type) && mls_context_equal(c1, c2));

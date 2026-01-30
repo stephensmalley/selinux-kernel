@@ -30,7 +30,7 @@ int global_sidtab_init(void)
 		 */
 		if (sid == SECINITSID_INIT)
 			str = "kernel";
-		ctx.str = (char *)str;
+		ctx.str = str;
 		ctx.len = strlen(str)+1;
 		rc = sidtab_set_initial(&global_sidtab, sid, &ctx);
 		if (rc)
@@ -40,7 +40,7 @@ int global_sidtab_init(void)
 	return 0;
 }
 
-static int global_sid_to_context(u32 sid, char **scontext, u32 *scontext_len)
+static int global_sid_to_context(u32 sid, const char **scontext, u32 *scontext_len)
 {
 	struct context *ctx;
 
@@ -53,19 +53,7 @@ static int global_sid_to_context(u32 sid, char **scontext, u32 *scontext_len)
 		return -EINVAL;
 	}
 	*scontext_len = ctx->len;
-	/*
-	 * Could eliminate allocation + copy if callers do not free
-	 * since the global sidtab entries are never freed.
-	 * This however would not match the current expectation
-	 * of callers of security_sid_to_context().
-	 * TODO: Update all callers and get rid of this copy.
-	 */
-	*scontext = kstrdup(ctx->str, GFP_ATOMIC);
-	if (!(*scontext)) {
-		rcu_read_unlock();
-		*scontext_len = 0;
-		return -ENOMEM;
-	}
+	*scontext = ctx->str;
 
 	rcu_read_unlock();
 	return 0;
@@ -117,7 +105,7 @@ static int map_global_sid_to_ss(struct selinux_state *state, u32 sid,
 {
 	struct sidtab_entry *entry;
 	int rc;
-	char *scontext;
+	const char *scontext;
 	u32 scontext_len;
 #if CONFIG_SECURITY_SELINUX_SS_SID_CACHE_SIZE > 0
 	struct sidtab_ss_sid_cache *cache;
@@ -197,7 +185,6 @@ static int map_global_sid_to_ss(struct selinux_state *state, u32 sid,
 		spin_unlock_irqrestore(&global_sidtab.lock, flags);
 	}
 #endif
-	kfree(scontext);
 	return rc;
 }
 
@@ -209,7 +196,7 @@ void global_sidtab_invalidate_state(struct selinux_state *state)
 static int map_ss_sid_to_global(struct selinux_state *state, u32 ss_sid,
 				u32 *out_sid, gfp_t gfp)
 {
-	char *scontext;
+	const char *scontext;
 	u32 scontext_len;
 	int rc;
 
@@ -218,19 +205,21 @@ static int map_ss_sid_to_global(struct selinux_state *state, u32 ss_sid,
 		return 0;
 	}
 
+	rcu_read_lock();
 	rc = selinux_ss_sid_to_context_force(state, ss_sid, &scontext,
 					     &scontext_len);
 	if (rc)
-		return rc;
+		goto out;
 
 	rc = global_context_to_sid(state, ss_sid, scontext, scontext_len,
 				   out_sid, GFP_ATOMIC);
-	kfree(scontext);
+out:
+	rcu_read_unlock();
 	return rc;
 }
 
 int security_sid_to_context(struct selinux_state *state, u32 sid,
-			    char **scontext, u32 *scontext_len)
+			    const char **scontext, u32 *scontext_len)
 {
 	// initial SID contexts have to be obtained from the policy, if initialized
 	if (sid <= SECINITSID_NUM && selinux_initialized(state))
@@ -240,7 +229,7 @@ int security_sid_to_context(struct selinux_state *state, u32 sid,
 }
 
 int security_sid_to_context_valid(struct selinux_state *state, u32 sid,
-			    char **scontext, u32 *scontext_len)
+			    const char **scontext, u32 *scontext_len)
 {
 	int rc;
 	u32 ss_sid;
@@ -258,7 +247,7 @@ int security_sid_to_context_valid(struct selinux_state *state, u32 sid,
 }
 
 int security_sid_to_context_force(struct selinux_state *state, u32 sid,
-				  char **scontext, u32 *scontext_len)
+				  const char **scontext, u32 *scontext_len)
 {
 	// initial SID contexts have to be obtained from the policy, if initialized
 	if (sid <= SECINITSID_NUM && selinux_initialized(state))
@@ -268,7 +257,7 @@ int security_sid_to_context_force(struct selinux_state *state, u32 sid,
 }
 
 int security_sid_to_context_inval(struct selinux_state *state, u32 sid,
-				  char **scontext, u32 *scontext_len)
+				  const char **scontext, u32 *scontext_len)
 {
 	int rc;
 	u32 ss_sid;
@@ -290,7 +279,8 @@ int security_context_to_sid(struct selinux_state *state, const char *scontext,
 {
 	int rc;
 	u32 sid, ss_sid = 0;
-	char *ctx = NULL;
+	const char *ctx = NULL;
+	bool alloc = false;
 
 	/*
 	 * If initialized, validate and canonicalize the context against
@@ -302,11 +292,18 @@ int security_context_to_sid(struct selinux_state *state, const char *scontext,
 		if (rc)
 			return rc;
 
+		rcu_read_lock();
 		rc = selinux_ss_sid_to_context(state, ss_sid, &ctx,
 					       &scontext_len);
 		if (rc)
-			return rc;
-		scontext = ctx;
+			goto err_unlock;
+		scontext = kmemdup(ctx, scontext_len, GFP_ATOMIC);
+		if (!scontext) {
+			rc = -ENOMEM;
+			goto err_unlock;
+		}
+		alloc = true;
+		rcu_read_unlock();
 	}
 
 	// allocate or lookup a SID in the global SID table
@@ -318,7 +315,11 @@ int security_context_to_sid(struct selinux_state *state, const char *scontext,
 	*out_sid = sid;
 
 out:
-	kfree(ctx);
+	if (alloc)
+		kfree(scontext);
+	return rc;
+err_unlock:
+	rcu_read_unlock();
 	return rc;
 }
 
@@ -337,7 +338,8 @@ int security_context_to_sid_default(struct selinux_state *state,
 {
 	int rc;
 	u32 sid, ss_sid = 0;
-	char *ctx = NULL;
+	const char *ctx = NULL;
+	bool alloc = false;
 
 	/*
 	 * If initialized, validate and canonicalize the context against
@@ -350,11 +352,18 @@ int security_context_to_sid_default(struct selinux_state *state,
 		if (rc)
 			return rc;
 
+		rcu_read_lock();
 		rc = selinux_ss_sid_to_context(state, ss_sid, &ctx,
 					       &scontext_len);
 		if (rc)
-			return rc;
-		scontext = ctx;
+			goto err_unlock;
+		scontext = kmemdup(ctx, scontext_len, GFP_ATOMIC);
+		if (!scontext) {
+			rc = -ENOMEM;
+			goto err_unlock;
+		}
+		alloc = true;
+		rcu_read_unlock();
 	}
 
 	// allocate or lookup a SID in the global SID table
@@ -366,7 +375,11 @@ int security_context_to_sid_default(struct selinux_state *state,
 	*out_sid = sid;
 
 out:
-	kfree(ctx);
+	if (alloc)
+		kfree(scontext);
+	return rc;
+err_unlock:
+	rcu_read_unlock();
 	return rc;
 }
 
@@ -376,7 +389,8 @@ int security_context_to_sid_force(struct selinux_state *state,
 {
 	int rc;
 	u32 sid, ss_sid = 0;
-	char *ctx = NULL;
+	const char *ctx = NULL;
+	bool alloc = false;
 
 	/*
 	 * If initialized, validate and canonicalize the context against
@@ -389,11 +403,18 @@ int security_context_to_sid_force(struct selinux_state *state,
 		if (rc)
 			return rc;
 
+		rcu_read_lock();
 		rc = selinux_ss_sid_to_context_force(state, ss_sid, &ctx,
 						     &scontext_len);
 		if (rc)
-			return rc;
-		scontext = ctx;
+			goto err_unlock;
+		scontext = kmemdup(ctx, scontext_len, GFP_ATOMIC);
+		if (!scontext) {
+			rc = -ENOMEM;
+			goto err_unlock;
+		}
+		alloc = true;
+		rcu_read_unlock();
 	}
 
 	// allocate or lookup a SID in the global SID table
@@ -405,7 +426,11 @@ int security_context_to_sid_force(struct selinux_state *state,
 	*out_sid = sid;
 
 out:
-	kfree(ctx);
+	if (alloc)
+		kfree(scontext);
+	return rc;
+err_unlock:
+	rcu_read_unlock();
 	return rc;
 }
 
