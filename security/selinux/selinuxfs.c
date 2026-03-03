@@ -2429,6 +2429,9 @@ static struct file_system_type sel_fs_type = {
 	.name		= "selinuxfs",
 	.init_fs_context = sel_init_fs_context,
 	.kill_sb	= sel_kill_sb,
+#ifdef CONFIG_SECURITY_SELINUX_NS
+	.fs_flags	= FS_USERNS_MOUNT,
+#endif
 };
 
 struct path selinux_null __ro_after_init;
