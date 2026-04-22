@@ -101,7 +101,7 @@ int comedi_alloc_subdevices(struct comedi_device *dev, int num_subdevices)
 	if (num_subdevices < 1)
 		return -EINVAL;
 
-	s = kcalloc(num_subdevices, sizeof(*s), GFP_KERNEL);
+	s = kzalloc_objs(*s, num_subdevices);
 	if (!s)
 		return -ENOMEM;
 	dev->subdevices = s;
@@ -733,7 +733,7 @@ static int __comedi_device_postconfig_async(struct comedi_device *dev,
 		dev_warn(dev->class_dev,
 			 "async subdevices should have a cancel() function\n");
 
-	async = kzalloc(sizeof(*async), GFP_KERNEL);
+	async = kzalloc_obj(*async);
 	if (!async)
 		return -ENOMEM;
 
@@ -1062,6 +1062,14 @@ int comedi_device_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 		module_put(driv->module);
 		ret = -EIO;
 		goto out;
+	}
+	if (IS_ENABLED(CONFIG_LOCKDEP)) {
+		/*
+		 * dev->spinlock is for private use by the attached low-level
+		 * driver.  Reinitialize it to stop lock-dependency tracking
+		 * between attachments to different low-level drivers.
+		 */
+		spin_lock_init(&dev->spinlock);
 	}
 	dev->driver = driv;
 	dev->board_name = dev->board_ptr ? *(const char **)dev->board_ptr

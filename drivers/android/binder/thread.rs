@@ -15,10 +15,10 @@ use kernel::{
     security,
     seq_file::SeqFile,
     seq_print,
+    sync::atomic::{ordering::Relaxed, Atomic},
     sync::poll::{PollCondVar, PollTable},
-    sync::{Arc, SpinLock},
+    sync::{aref::ARef, Arc, SpinLock},
     task::Task,
-    types::ARef,
     uaccess::UserSlice,
     uapi,
 };
@@ -34,10 +34,7 @@ use crate::{
     BinderReturnWriter, DArc, DLArc, DTRWrap, DeliverCode, DeliverToRead,
 };
 
-use core::{
-    mem::size_of,
-    sync::atomic::{AtomicU32, Ordering},
-};
+use core::mem::size_of;
 
 fn is_aligned(value: usize, to: usize) -> bool {
     value % to == 0
@@ -284,8 +281,8 @@ const LOOPER_POLL: u32 = 0x40;
 impl InnerThread {
     fn new() -> Result<Self> {
         fn next_err_id() -> u32 {
-            static EE_ID: AtomicU32 = AtomicU32::new(0);
-            EE_ID.fetch_add(1, Ordering::Relaxed)
+            static EE_ID: Atomic<u32> = Atomic::new(0);
+            EE_ID.fetch_add(1, Relaxed)
         }
 
         Ok(Self {
@@ -1018,12 +1015,9 @@ impl Thread {
 
         // Copy offsets if there are any.
         if offsets_size > 0 {
-            {
-                let mut reader =
-                    UserSlice::new(UserPtr::from_addr(trd_data_ptr.offsets as _), offsets_size)
-                        .reader();
-                alloc.copy_into(&mut reader, aligned_data_size, offsets_size)?;
-            }
+            let mut offsets_reader =
+                UserSlice::new(UserPtr::from_addr(trd_data_ptr.offsets as _), offsets_size)
+                    .reader();
 
             let offsets_start = aligned_data_size;
             let offsets_end = aligned_data_size + offsets_size;
@@ -1044,11 +1038,9 @@ impl Thread {
                 .step_by(size_of::<u64>())
                 .enumerate()
             {
-                let offset: usize = view
-                    .alloc
-                    .read::<u64>(index_offset)?
-                    .try_into()
-                    .map_err(|_| EINVAL)?;
+                let offset = offsets_reader.read::<u64>()?;
+                view.alloc.write(index_offset, &offset)?;
+                let offset: usize = offset.try_into().map_err(|_| EINVAL)?;
 
                 if offset < end_of_previous_object || !is_aligned(offset, size_of::<u32>()) {
                     pr_warn!("Got transaction with invalid offset.");
@@ -1148,6 +1140,7 @@ impl Thread {
         transaction: &DArc<Transaction>,
     ) -> bool {
         if let Ok(transaction) = &reply {
+            crate::trace::trace_transaction(true, transaction, Some(&self.task));
             transaction.set_outstanding(&mut self.process.inner.lock());
         }
 
@@ -1568,7 +1561,7 @@ impl Thread {
 
 #[pin_data]
 struct ThreadError {
-    error_code: AtomicU32,
+    error_code: Atomic<u32>,
     #[pin]
     links_track: AtomicTracker,
 }
@@ -1576,18 +1569,18 @@ struct ThreadError {
 impl ThreadError {
     fn try_new() -> Result<DArc<Self>> {
         DTRWrap::arc_pin_init(pin_init!(Self {
-            error_code: AtomicU32::new(BR_OK),
+            error_code: Atomic::new(BR_OK),
             links_track <- AtomicTracker::new(),
         }))
         .map(ListArc::into_arc)
     }
 
     fn set_error_code(&self, code: u32) {
-        self.error_code.store(code, Ordering::Relaxed);
+        self.error_code.store(code, Relaxed);
     }
 
     fn is_unused(&self) -> bool {
-        self.error_code.load(Ordering::Relaxed) == BR_OK
+        self.error_code.load(Relaxed) == BR_OK
     }
 }
 
@@ -1597,8 +1590,8 @@ impl DeliverToRead for ThreadError {
         _thread: &Thread,
         writer: &mut BinderReturnWriter<'_>,
     ) -> Result<bool> {
-        let code = self.error_code.load(Ordering::Relaxed);
-        self.error_code.store(BR_OK, Ordering::Relaxed);
+        let code = self.error_code.load(Relaxed);
+        self.error_code.store(BR_OK, Relaxed);
         writer.write_code(code)?;
         Ok(true)
     }
@@ -1614,7 +1607,7 @@ impl DeliverToRead for ThreadError {
             m,
             "{}transaction error: {}\n",
             prefix,
-            self.error_code.load(Ordering::Relaxed)
+            self.error_code.load(Relaxed)
         );
         Ok(())
     }

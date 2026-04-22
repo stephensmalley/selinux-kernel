@@ -85,7 +85,10 @@ int ovl_can_decode_fh(struct super_block *sb)
 	if (!exportfs_can_decode_fh(sb->s_export_op))
 		return 0;
 
-	return sb->s_export_op->encode_fh ? -1 : FILEID_INO32_GEN;
+	if (sb->s_export_op->encode_fh == generic_encode_ino32_fh)
+		return FILEID_INO32_GEN;
+
+	return -1;
 }
 
 struct dentry *ovl_indexdir(struct super_block *sb)
@@ -113,7 +116,7 @@ bool ovl_verify_lower(struct super_block *sb)
 
 struct ovl_path *ovl_stack_alloc(unsigned int n)
 {
-	return kcalloc(n, sizeof(struct ovl_path), GFP_KERNEL);
+	return kzalloc_objs(struct ovl_path, n);
 }
 
 void ovl_stack_cpy(struct ovl_path *dst, struct ovl_path *src, unsigned int n)
@@ -143,7 +146,7 @@ struct ovl_entry *ovl_alloc_entry(unsigned int numlower)
 {
 	struct ovl_entry *oe;
 
-	oe = kzalloc(struct_size(oe, __lowerstack, numlower), GFP_KERNEL);
+	oe = kzalloc_flex(*oe, __lowerstack, numlower);
 	if (oe)
 		oe->__numlower = numlower;
 

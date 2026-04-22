@@ -1890,7 +1890,7 @@ int ovs_nla_get_identifier(struct sw_flow_id *sfid, const struct nlattr *ufid,
 		return 0;
 
 	/* If UFID was not provided, use unmasked key. */
-	new_key = kmalloc(sizeof(*new_key), GFP_KERNEL);
+	new_key = kmalloc_obj(*new_key);
 	if (!new_key)
 		return -ENOMEM;
 	memcpy(new_key, key, sizeof(*key));
@@ -2952,6 +2952,8 @@ static int validate_set(const struct nlattr *a,
 
 	case OVS_KEY_ATTR_MPLS:
 		if (!eth_p_mpls(eth_type))
+			return -EINVAL;
+		if (key_len != sizeof(struct ovs_key_mpls))
 			return -EINVAL;
 		break;
 
