@@ -180,15 +180,8 @@ static inline int sidtab_sid2str_get(struct sidtab *s,
 #endif /* CONFIG_SECURITY_SELINUX_SID2STR_CACHE_SIZE > 0 */
 
 #ifdef CONFIG_SECURITY_SELINUX_NS
-#if CONFIG_SECURITY_SELINUX_SS_SID_CACHE_SIZE > 0
 extern void sidtab_invalidate_state(struct sidtab *s,
 				    struct selinux_state *state);
-#else
-static inline void sidtab_invalidate_state(struct sidtab *s,
-					   struct selinux_state *state)
-{
-}
-#endif /* CONFIG_SECURITY_SELINUX_SS_SID_CACHE_SIZE > 0 */
 #endif /* CONFIG_SECURITY_SELINUX_NS */
 
 #endif /* _SS_SIDTAB_H_ */

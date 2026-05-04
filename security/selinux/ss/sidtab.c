@@ -650,13 +650,20 @@ int sidtab_sid2str_get(struct sidtab *s, struct sidtab_entry *entry, char **out,
 #endif /* CONFIG_SECURITY_SELINUX_SID2STR_CACHE_SIZE > 0 */
 
 #ifdef CONFIG_SECURITY_SELINUX_NS
-#if CONFIG_SECURITY_SELINUX_SS_SID_CACHE_SIZE > 0
 static void sidtab_invalidate_state_entry(struct sidtab_entry *entry,
 					  struct selinux_state *state)
 {
+#if CONFIG_SECURITY_SELINUX_SS_SID_CACHE_SIZE > 0
 	struct sidtab_ss_sid_cache *cache;
 	int i, first, last;
+#endif
 
+	if (entry->state == state) {
+		WRITE_ONCE(entry->ss_sid, 0);
+		WRITE_ONCE(entry->state, NULL);
+	}
+
+#if CONFIG_SECURITY_SELINUX_SS_SID_CACHE_SIZE > 0
 	cache = &entry->ss_sid_cache;
 	first = cache->first;
 	last = cache->last;
@@ -684,6 +691,7 @@ static void sidtab_invalidate_state_entry(struct sidtab_entry *entry,
 			return;
 		}
 	}
+#endif
 }
 
 static void sidtab_invalidate_state_tree(union sidtab_entry_inner entry,
@@ -731,5 +739,4 @@ void sidtab_invalidate_state(struct sidtab *s, struct selinux_state *state)
 
 	spin_unlock_irqrestore(&s->lock, flags);
 }
-#endif /* CONFIG_SECURITY_SELINUX_SS_SID_CACHE_SIZE > 0 */
 #endif /* CONFIG_SECURITY_SELINUX_NS */
