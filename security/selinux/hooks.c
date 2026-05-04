@@ -7028,8 +7028,18 @@ static int selinux_lsm_setattr(u64 attr, void *value, size_t size)
 		break;
 #ifdef CONFIG_SECURITY_SELINUX_NS
 	case LSM_ATTR_UNSHARE:
-		error = avc_has_perm(state, mysid, mysid, SECCLASS_PROCESS2,
-				     PROCESS2__UNSHARE_SELINUXNS, NULL);
+		/*
+		 * TODO: Figure out how we want to control unsharing
+		 * of the SELinux namespace. For now, require CAP_SYS_ADMIN
+		 * and check SELinux unshare_selinuxns in this and all ancestor
+		 * namspaces.
+		 */
+		if (!ns_capable(current_user_ns(), CAP_SYS_ADMIN)) {
+			error = -EPERM;
+			break;
+		}
+		error = cred_self_has_perm(cred, SECCLASS_PROCESS2,
+					   PROCESS2__UNSHARE_SELINUXNS, NULL);
 		break;
 #endif
 	default:
