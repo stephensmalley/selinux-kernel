@@ -1705,8 +1705,8 @@ static int cred_has_capability(const struct cred *cred,
  * parameter is optional and allows other audit data to be passed (e.g. the
  * dentry).
  */
-static int inode_sid_has_perm(u32 sid, struct inode *inode, u32 perms,
-			      struct common_audit_data *adp)
+static int inode_sid_has_perm(const struct cred *cred, u32 sid, struct inode *inode,
+			      u32 perms, struct common_audit_data *adp)
 {
 	struct inode_security_struct *isec;
 
@@ -1715,9 +1715,8 @@ static int inode_sid_has_perm(u32 sid, struct inode *inode, u32 perms,
 
 	isec = selinux_inode(inode);
 
-	/* XXX Still needs to be converted */
-	return avc_has_perm(current_selinux_state, sid, isec->sid,
-			    isec->sclass, perms, adp);
+	return cred_ssid_has_perm(cred, sid, isec->sid, isec->sclass, perms,
+				  adp);
 }
 
 static int inode_has_perm(const struct cred *cred,
@@ -1725,7 +1724,7 @@ static int inode_has_perm(const struct cred *cred,
 			  u32 perms,
 			  struct common_audit_data *adp)
 {
-	return inode_sid_has_perm(cred_sid(cred), inode, perms, adp);
+	return inode_sid_has_perm(cred, cred_sid(cred), inode, perms, adp);
 }
 
 /* Same as inode_has_perm, but pass explicit audit data containing
@@ -4158,7 +4157,8 @@ static int backing_mounters_has_perm(const struct file *file, u32 av)
 				return rc;
 		}
 
-		rc = inode_sid_has_perm(layer->mounter_sid, inode, av, &ad);
+		rc = inode_sid_has_perm(file->f_cred, layer->mounter_sid,
+					inode, av, &ad);
 		if (rc)
 			return rc;
 	}
