@@ -5297,10 +5297,11 @@ static int __selinux_socket_bind(struct sock *sk, struct sockaddr *address, int 
 						      snum, &sid);
 				if (err)
 					goto out;
-				err = cred_ssid_has_perm(current_cred(), sksec->sid,
-							 sid, sksec->sclass,
-							 SOCKET__NAME_BIND,
-							 &ad);
+				err = selinux_state_has_perm(sksec->state,
+							     sksec->sid, sid,
+							     sksec->sclass,
+							     SOCKET__NAME_BIND,
+							     &ad);
 				if (err)
 					goto out;
 			}
@@ -5324,8 +5325,7 @@ static int __selinux_socket_bind(struct sock *sk, struct sockaddr *address, int 
 			break;
 		}
 
-		err = sel_netnode_sid(current_selinux_state, addrp, family_sa,
-				      &sid);
+		err = sel_netnode_sid(sksec->state, addrp, family_sa, &sid);
 		if (err)
 			goto out;
 
@@ -5334,8 +5334,8 @@ static int __selinux_socket_bind(struct sock *sk, struct sockaddr *address, int 
 		else
 			ad.u.net->v6info.saddr = addr6->sin6_addr;
 
-		err = cred_ssid_has_perm(current_cred(), sksec->sid, sid,
-					 sksec->sclass, node_perm, &ad);
+		err = selinux_state_has_perm(sksec->state, sksec->sid, sid,
+					     sksec->sclass, node_perm, &ad);
 		if (err)
 			goto out;
 	}
@@ -5359,7 +5359,6 @@ static int selinux_socket_bind(struct socket *sock, struct sockaddr *address, in
 static int selinux_socket_connect_helper(struct sock *sk,
 					 struct sockaddr *address, int addrlen)
 {
-	const struct cred *cred = current_cred();
 	struct sk_security_struct *sksec = selinux_sock(sk);
 	int err;
 
@@ -5433,8 +5432,8 @@ static int selinux_socket_connect_helper(struct sock *sk,
 		ad.u.net = &net;
 		ad.u.net->dport = htons(snum);
 		ad.u.net->family = address->sa_family;
-		err = cred_ssid_has_perm(cred, sksec->sid, sid,
-					 sksec->sclass, perm, &ad);
+		err = selinux_state_has_perm(sksec->state, sksec->sid, sid,
+					     sksec->sclass, perm, &ad);
 		if (err)
 			return err;
 	}
