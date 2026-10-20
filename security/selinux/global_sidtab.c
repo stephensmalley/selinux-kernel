@@ -76,7 +76,7 @@ static int global_context_to_sid(struct selinux_state *state, u32 ss_sid,
 				u32 *out_sid, gfp_t gfp)
 {
 	char *str;
-	struct context ctx;
+	struct context ctx = {};
 	int rc;
 
 	if (!scontext_len)
