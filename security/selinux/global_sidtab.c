@@ -313,6 +313,7 @@ int security_context_to_sid(struct selinux_state *state, const char *scontext,
 				&scontext_len);
 	if (rc)
 		return rc;
+	scontext = ctx;
 
 	// allocate or lookup a SID in the global SID table
 	rc = global_context_to_sid(state, ss_sid, scontext, scontext_len,
