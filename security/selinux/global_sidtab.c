@@ -248,7 +248,7 @@ static int map_ss_sid_to_global(struct selinux_state *state, u32 ss_sid,
 		return rc;
 
 	rc = global_context_to_sid(state, ss_sid, scontext, scontext_len,
-				   out_sid, GFP_ATOMIC);
+				   out_sid, gfp);
 	kfree(scontext);
 	return rc;
 }
