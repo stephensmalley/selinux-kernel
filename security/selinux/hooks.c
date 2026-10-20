@@ -227,7 +227,7 @@ static struct cred_security_struct unlabeled_cred_security = {
 /*
  * Caller must hold RCU read lock.
  */
-static const struct cred_security_struct *task_cred_security(
+const struct cred_security_struct *selinux_task_cred_security(
 	const struct task_struct *p)
 {
 	const struct cred_security_struct *crsec;
@@ -274,7 +274,7 @@ static inline u32 task_sid_obj(const struct task_struct *task)
 	u32 sid;
 
 	rcu_read_lock();
-	crsec = task_cred_security(task);
+	crsec = selinux_task_cred_security(task);
 	sid = crsec->sid;
 	rcu_read_unlock();
 	return sid;
@@ -7030,7 +7030,7 @@ static int selinux_lsm_getattr(unsigned int attr, struct task_struct *p,
 		if (error)
 			goto err_unlock;
 	}
-	crsec = task_cred_security(p);
+	crsec = selinux_task_cred_security(p);
 	switch (attr) {
 	case LSM_ATTR_CURRENT:
 		sid = crsec->sid;

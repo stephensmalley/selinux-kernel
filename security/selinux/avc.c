@@ -31,6 +31,7 @@
 #include "avc_ss.h"
 #include "classmap.h"
 #include "hash.h"
+#include "objsec.h"
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/avc.h>
@@ -1311,19 +1312,6 @@ int cred_task_has_perm(const struct cred *cred, const struct task_struct *p,
 	return 0;
 }
 
-static const struct cred_security_struct *task_cred_security(
-	const struct task_struct *p)
-{
-	const struct cred_security_struct *crsec;
-
-	crsec = selinux_cred(__task_cred(p));
-	while (crsec->state != current_selinux_state && crsec->parent_cred)
-		crsec = selinux_cred(crsec->parent_cred);
-	if (crsec->state != current_selinux_state)
-		return NULL;
-	return crsec;
-}
-
 /**
  * task_obj_has_perm - Check and audit permissions on a (task, other-task) pair
  * @s: source task
@@ -1354,20 +1342,14 @@ int task_obj_has_perm(const struct task_struct *s,
 
 	state = current_selinux_state;
 	rcu_read_lock();
-	crsec = task_cred_security(s);
-	if (crsec)
-		ssid = crsec->sid;
-	else
-		ssid = SECINITSID_UNLABELED;
+	crsec = selinux_task_cred_security(s);
+	ssid = crsec->sid;
 
 	do {
 		tsid = task_sid_obj_for_state(t, state);
 
 		rc = avc_has_perm(state, ssid, tsid, tclass, requested, ad);
 		if (rc)
-			break;
-
-		if (!crsec)
 			break;
 
 		cred = crsec->parent_cred;
