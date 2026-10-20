@@ -172,6 +172,7 @@ static void sel_netnode_insert(struct sel_netnode *node)
 				lockdep_is_held(&sel_netnode_lock)),
 			struct sel_netnode, list);
 		list_del_rcu(&tail->list);
+		put_selinux_state(tail->nsec.state);
 		kfree_rcu(tail, rcu);
 	} else
 		sel_netnode_hash[idx].size++;
