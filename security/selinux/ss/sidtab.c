@@ -675,17 +675,14 @@ static void sidtab_invalidate_state_entry(struct sidtab_entry *entry,
 				for (first = i + 1; first <= last &&
 					     !cache->ss_sid[first]; first++)
 					;
-				if (first == (i+1))
+				if (first > last)
 					first = -1;
 				WRITE_ONCE(cache->first, first);
 			}
 			if (last == i) {
-				for (last = i - 1; last >= first &&
-					     last >= 0 &&
-					     !cache->ss_sid[last]; last--)
+				for (last = i - 1;
+				     last >= 0 && !cache->ss_sid[last]; last--)
 					;
-				if (last == (i-1))
-					last = -1;
 				WRITE_ONCE(cache->last, last);
 			}
 			return;

@@ -24,6 +24,7 @@ struct sidtab_ss_sid_cache {
 	u32 ss_sid[CONFIG_SECURITY_SELINUX_SS_SID_CACHE_SIZE];
 	struct selinux_state *state[CONFIG_SECURITY_SELINUX_SS_SID_CACHE_SIZE];
 	int first, last;
+	u8 victim; /* next slot to overwrite when full; writer-only */
 };
 #endif
 #endif
