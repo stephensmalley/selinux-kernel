@@ -4216,15 +4216,14 @@ static int __file_map_prot_check(const struct file *file, unsigned long prot,
 	if (!mounter_check && default_noexec && prot_exec &&
 	    (!file || IS_PRIVATE(inode) || (!shared && prot_write))) {
 		int rc;
-		u32 sid = current_sid();
+		const struct cred *cred = current_cred();
 
 		/*
 		 * We are making executable an anonymous mapping or a private
 		 * file mapping that will also be writable.
 		 */
-		rc = avc_has_perm(current_selinux_state,
-				  sid, sid, SECCLASS_PROCESS,
-				  PROCESS__EXECMEM, NULL);
+		rc = cred_self_has_perm(cred, SECCLASS_PROCESS,
+					PROCESS__EXECMEM, NULL);
 		if (rc)
 			return rc;
 	}
@@ -4540,6 +4539,10 @@ static int selinux_file_open(struct file *file)
 			inode->i_sb->s_magic != SOCKFS_MAGIC)
 			requested |= FILE__OPEN;
 
+		/*
+		 * This is part of an inlined version of cred_tsid_has_perm
+		 * and therefore directly calls avc_has_perm.
+		 */
 		rc = avc_has_perm(state, ssid, tsid, sclass, requested, &ad);
 		if (rc)
 			return rc;
