@@ -176,8 +176,8 @@ static int map_global_sid_to_ss(struct selinux_state *state, u32 sid,
 		spin_lock_irqsave(&global_sidtab.lock, flags);
 		entry = sidtab_search_entry_force(&global_sidtab, sid);
 		if (!entry) {
-			spin_unlock_irqrestore(&global_sidtab.lock, flags);
-			return -EINVAL;
+			rc = -EINVAL;
+			goto out_unlock;
 		}
 		cache = &entry->ss_sid_cache;
 		first = cache->first;
