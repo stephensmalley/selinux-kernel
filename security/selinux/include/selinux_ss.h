@@ -14,13 +14,13 @@ void selinux_ss_compute_av(struct selinux_state *state, u32 ssid, u32 tsid,
 			   u16 tclass, struct av_decision *avd,
 			   struct extended_perms *xperms);
 
+void selinux_ss_compute_av_user(struct selinux_state *state, u32 ssid, u32 tsid,
+				u16 tclass, struct av_decision *avd);
+
 void selinux_ss_compute_xperms_decision(struct selinux_state *state, u32 ssid,
 					u32 tsid, u16 tclass, u8 driver,
 					u8 base_perm,
 					struct extended_perms_decision *xpermd);
-
-void selinux_ss_compute_av_user(struct selinux_state *state, u32 ssid, u32 tsid,
-				u16 tclass, struct av_decision *avd);
 
 int selinux_ss_transition_sid(struct selinux_state *state, u32 ssid, u32 tsid,
 			      u16 tclass, const struct qstr *qstr,

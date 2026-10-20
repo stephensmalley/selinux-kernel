@@ -349,6 +349,9 @@ void security_compute_av(struct selinux_state *state, u32 ssid, u32 tsid,
 			 u16 tclass, struct av_decision *avd,
 			 struct extended_perms *xperms);
 
+void security_compute_av_user(struct selinux_state *state, u32 ssid, u32 tsid,
+			      u16 tclass, struct av_decision *avd);
+
 void security_compute_xperms_decision(struct selinux_state *state, u32 ssid,
 				      u32 tsid, u16 tclass, u8 driver,
 				      u8 base_perm,
@@ -356,6 +359,16 @@ void security_compute_xperms_decision(struct selinux_state *state, u32 ssid,
 
 int security_transition_sid(struct selinux_state *state, u32 ssid, u32 tsid,
 			    u16 tclass, const struct qstr *qstr, u32 *out_sid);
+
+int security_transition_sid_user(struct selinux_state *state, u32 ssid,
+				 u32 tsid, u16 tclass, const char *objname,
+				 u32 *out_sid);
+
+int security_member_sid(struct selinux_state *state, u32 ssid, u32 tsid,
+			u16 tclass, u32 *out_sid);
+
+int security_change_sid(struct selinux_state *state, u32 ssid, u32 tsid,
+			u16 tclass, u32 *out_sid);
 
 int security_sid_to_context(struct selinux_state *state, u32 sid,
 			    char **scontext, u32 *scontext_len);
@@ -401,6 +414,9 @@ int security_node_sid(struct selinux_state *state, u16 domain, const void *addr,
 int security_validate_transition(struct selinux_state *state, u32 oldsid,
 				 u32 newsid, u32 tasksid, u16 tclass);
 
+int security_validate_transition_user(struct selinux_state *state, u32 oldsid,
+				      u32 newsid, u32 tasksid, u16 tclass);
+
 int security_bounded_transition(struct selinux_state *state, u32 old_sid,
 				u32 new_sid);
 
@@ -422,6 +438,13 @@ static inline void security_compute_av(struct selinux_state *state, u32 ssid,
 	selinux_ss_compute_av(state, ssid, tsid, tclass, avd, xperms);
 }
 
+static inline void security_compute_av_user(struct selinux_state *state,
+					    u32 ssid, u32 tsid, u16 tclass,
+					    struct av_decision *avd)
+{
+	selinux_ss_compute_av_user(state, ssid, tsid, tclass, avd);
+}
+
 static inline void
 security_compute_xperms_decision(struct selinux_state *state, u32 ssid,
 				 u32 tsid, u16 tclass, u8 driver, u8 base_perm,
@@ -437,6 +460,27 @@ static inline int security_transition_sid(struct selinux_state *state, u32 ssid,
 {
 	return selinux_ss_transition_sid(state, ssid, tsid, tclass, qstr,
 					 out_sid);
+}
+
+static inline int security_transition_sid_user(struct selinux_state *state,
+					       u32 ssid, u32 tsid, u16 tclass,
+					       const char *objname,
+					       u32 *out_sid)
+{
+	return selinux_ss_transition_sid_user(state, ssid, tsid, tclass,
+					      objname, out_sid);
+}
+
+static inline int security_member_sid(struct selinux_state *state, u32 ssid,
+				      u32 tsid, u16 tclass, u32 *out_sid)
+{
+	return selinux_ss_member_sid(state, ssid, tsid, tclass, out_sid);
+}
+
+static inline int security_change_sid(struct selinux_state *state, u32 ssid,
+				      u32 tsid, u16 tclass, u32 *out_sid)
+{
+	return selinux_ss_change_sid(state, ssid, tsid, tclass, out_sid);
 }
 
 static inline int security_sid_to_context(struct selinux_state *state, u32 sid,
@@ -540,6 +584,14 @@ static inline int security_validate_transition(struct selinux_state *state,
 {
 	return selinux_ss_validate_transition(state, oldsid, newsid, tasksid,
 					      tclass);
+}
+
+static inline int security_validate_transition_user(struct selinux_state *state,
+						    u32 oldsid, u32 newsid,
+						    u32 tasksid, u16 tclass)
+{
+	return selinux_ss_validate_transition_user(state, oldsid, newsid,
+						   tasksid, tclass);
 }
 
 static inline int security_bounded_transition(struct selinux_state *state,

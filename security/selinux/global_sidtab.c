@@ -388,6 +388,35 @@ out:
 	xperms->len = 0;
 }
 
+void security_compute_av_user(struct selinux_state *state, u32 ssid, u32 tsid,
+			      u16 tclass, struct av_decision *avd)
+{
+	u32 ss_ssid, ss_tsid;
+	int rc;
+
+	if (!selinux_initialized(state))
+		goto allow;
+
+	rc = map_global_sid_to_ss(state, ssid, &ss_ssid, GFP_ATOMIC);
+	if (rc)
+		goto deny;
+	rc = map_global_sid_to_ss(state, tsid, &ss_tsid, GFP_ATOMIC);
+	if (rc)
+		goto deny;
+	selinux_ss_compute_av_user(state, ss_ssid, ss_tsid, tclass, avd);
+	return;
+allow:
+	avd->allowed = ~0U;
+	goto out;
+deny:
+	avd->allowed = 0;
+out:
+	avd->auditallow = 0;
+	avd->auditdeny = ~0U;
+	avd->seqno = 0;
+	avd->flags = 0;
+}
+
 void security_compute_xperms_decision(struct selinux_state *state, u32 ssid,
 				      u32 tsid, u16 tclass, u8 driver,
 				      u8 base_perm,
@@ -446,6 +475,101 @@ int security_transition_sid(struct selinux_state *state, u32 ssid, u32 tsid,
 		return rc;
 	rc = selinux_ss_transition_sid(state, ss_ssid, ss_tsid, tclass, qstr,
 				       &ss_outsid);
+	if (rc)
+		return rc;
+
+	return map_ss_sid_to_global(state, ss_outsid, out_sid, GFP_ATOMIC);
+}
+
+int security_transition_sid_user(struct selinux_state *state, u32 ssid,
+				 u32 tsid, u16 tclass, const char *objname,
+				 u32 *out_sid)
+{
+	u32 ss_ssid, ss_tsid, ss_outsid;
+	int rc;
+
+	if (!selinux_initialized(state)) {
+		switch (tclass) {
+		case SECCLASS_PROCESS:
+			*out_sid = ssid;
+			break;
+		default:
+			*out_sid = tsid;
+			break;
+		}
+		return 0;
+	}
+
+	rc = map_global_sid_to_ss(state, ssid, &ss_ssid, GFP_ATOMIC);
+	if (rc)
+		return rc;
+	rc = map_global_sid_to_ss(state, tsid, &ss_tsid, GFP_ATOMIC);
+	if (rc)
+		return rc;
+	rc = selinux_ss_transition_sid_user(state, ss_ssid, ss_tsid, tclass, objname,
+					    &ss_outsid);
+	if (rc)
+		return rc;
+
+	return map_ss_sid_to_global(state, ss_outsid, out_sid, GFP_ATOMIC);
+}
+
+int security_member_sid(struct selinux_state *state, u32 ssid, u32 tsid,
+			u16 tclass, u32 *out_sid)
+{
+	u32 ss_ssid, ss_tsid, ss_outsid;
+	int rc;
+
+	if (!selinux_initialized(state)) {
+		switch (tclass) {
+		case SECCLASS_PROCESS:
+			*out_sid = ssid;
+			break;
+		default:
+			*out_sid = tsid;
+			break;
+		}
+		return 0;
+	}
+
+	rc = map_global_sid_to_ss(state, ssid, &ss_ssid, GFP_ATOMIC);
+	if (rc)
+		return rc;
+	rc = map_global_sid_to_ss(state, tsid, &ss_tsid, GFP_ATOMIC);
+	if (rc)
+		return rc;
+	rc = selinux_ss_member_sid(state, ss_ssid, ss_tsid, tclass, &ss_outsid);
+	if (rc)
+		return rc;
+
+	return map_ss_sid_to_global(state, ss_outsid, out_sid, GFP_ATOMIC);
+}
+
+int security_change_sid(struct selinux_state *state, u32 ssid, u32 tsid,
+			u16 tclass, u32 *out_sid)
+{
+	u32 ss_ssid, ss_tsid, ss_outsid;
+	int rc;
+
+	if (!selinux_initialized(state)) {
+		switch (tclass) {
+		case SECCLASS_PROCESS:
+			*out_sid = ssid;
+			break;
+		default:
+			*out_sid = tsid;
+			break;
+		}
+		return 0;
+	}
+
+	rc = map_global_sid_to_ss(state, ssid, &ss_ssid, GFP_ATOMIC);
+	if (rc)
+		return rc;
+	rc = map_global_sid_to_ss(state, tsid, &ss_tsid, GFP_ATOMIC);
+	if (rc)
+		return rc;
+	rc = selinux_ss_change_sid(state, ss_ssid, ss_tsid, tclass, &ss_outsid);
 	if (rc)
 		return rc;
 
@@ -561,6 +685,28 @@ int security_validate_transition(struct selinux_state *state, u32 oldsid,
 		return -EINVAL;
 	return selinux_ss_validate_transition(state, ss_oldsid, ss_newsid,
 					      ss_tasksid, tclass);
+}
+
+int security_validate_transition_user(struct selinux_state *state, u32 oldsid,
+				      u32 newsid, u32 tasksid, u16 tclass)
+{
+	u32 ss_oldsid, ss_newsid, ss_tasksid;
+	int rc;
+
+	if (!selinux_initialized(state))
+		return 0;
+
+	rc = map_global_sid_to_ss(state, oldsid, &ss_oldsid, GFP_ATOMIC);
+	if (rc)
+		return -EINVAL;
+	rc = map_global_sid_to_ss(state, newsid, &ss_newsid, GFP_ATOMIC);
+	if (rc)
+		return -EINVAL;
+	rc = map_global_sid_to_ss(state, tasksid, &ss_tasksid, GFP_ATOMIC);
+	if (rc)
+		return -EINVAL;
+	return selinux_ss_validate_transition_user(state, ss_oldsid, ss_newsid,
+						   ss_tasksid, tclass);
 }
 
 int security_bounded_transition(struct selinux_state *state, u32 oldsid,
