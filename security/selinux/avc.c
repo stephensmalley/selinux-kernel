@@ -1333,7 +1333,6 @@ int task_obj_has_perm(const struct task_struct *s,
 		      u16 tclass, u32 requested,
 		      struct common_audit_data *ad)
 {
-	const struct cred *cred;
 	const struct cred_security_struct *crsec;
 	struct selinux_state *state;
 	u32 ssid;
@@ -1352,14 +1351,9 @@ int task_obj_has_perm(const struct task_struct *s,
 		if (rc)
 			break;
 
-		cred = crsec->parent_cred;
-		if (!cred)
-			break;
-
-		crsec = selinux_cred(cred);
-		ssid = crsec->sid;
-		state = crsec->state;
-	} while (cred);
+		ssid = state->creator_sid;
+		state = state->parent;
+	} while (state);
 
 	rcu_read_unlock();
 	return rc;
