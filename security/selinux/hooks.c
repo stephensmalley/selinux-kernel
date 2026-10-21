@@ -2518,8 +2518,8 @@ static int selinux_bprm_creds_for_exec(struct linux_binprm *bprm)
 	 */
 	cred = old_crsec->parent_cred;
 	if (cred) {
-		rc = cred_tsid_has_perm(cred, isec->sid,
-					SECCLASS_FILE, FILE__EXECUTE_NO_TRANS, &ad);
+		rc = cred_tsid_has_perm(cred, isec->sid, isec->sclass,
+					FILE__EXECUTE_NO_TRANS, &ad);
 		if (rc)
 			return rc;
 	}
