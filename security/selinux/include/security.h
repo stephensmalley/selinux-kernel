@@ -233,10 +233,9 @@ static inline bool selinux_policycap_alwaysnetwork(void)
 		current_selinux_state->policycap[POLICYDB_CAP_ALWAYSNETWORK]);
 }
 
-static inline bool selinux_policycap_cgroupseclabel(void)
+static inline bool selinux_policycap_cgroupseclabel(struct selinux_state *state)
 {
-	return READ_ONCE(
-		current_selinux_state->policycap[POLICYDB_CAP_CGROUPSECLABEL]);
+	return READ_ONCE(state->policycap[POLICYDB_CAP_CGROUPSECLABEL]);
 }
 
 static inline bool selinux_policycap_nnp_nosuid_transition(void)
@@ -270,10 +269,9 @@ static inline bool selinux_policycap_netlink_xperm(void)
 		current_selinux_state->policycap[POLICYDB_CAP_NETLINK_XPERM]);
 }
 
-static inline bool selinux_policycap_functionfs_seclabel(void)
+static inline bool selinux_policycap_functionfs_seclabel(struct selinux_state *state)
 {
-	return READ_ONCE(
-		current_selinux_state->policycap[POLICYDB_CAP_FUNCTIONFS_SECLABEL]);
+	return READ_ONCE(state->policycap[POLICYDB_CAP_FUNCTIONFS_SECLABEL]);
 }
 
 static inline bool selinux_policycap_memfd_class(void)

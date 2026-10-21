@@ -477,7 +477,8 @@ static int may_context_mount_inode_relabel(u32 sid,
 				 FILESYSTEM__ASSOCIATE, NULL);
 }
 
-static int selinux_is_genfs_special_handling(struct super_block *sb)
+static int selinux_is_genfs_special_handling(struct super_block *sb,
+					     struct selinux_state *state)
 {
 	/* Special handling. Genfs but also in-core setxattr handler */
 	return	!strcmp(sb->s_type->name, "sysfs") ||
@@ -485,10 +486,10 @@ static int selinux_is_genfs_special_handling(struct super_block *sb)
 		!strcmp(sb->s_type->name, "debugfs") ||
 		!strcmp(sb->s_type->name, "tracefs") ||
 		!strcmp(sb->s_type->name, "rootfs") ||
-		(selinux_policycap_cgroupseclabel() &&
+		(selinux_policycap_cgroupseclabel(state) &&
 		 (!strcmp(sb->s_type->name, "cgroup") ||
 		  !strcmp(sb->s_type->name, "cgroup2"))) ||
-		(selinux_policycap_functionfs_seclabel() &&
+		(selinux_policycap_functionfs_seclabel(state) &&
 		 !strcmp(sb->s_type->name, "functionfs"));
 }
 
@@ -510,7 +511,8 @@ static int selinux_is_sblabel_mnt(struct super_block *sb)
 		return 1;
 
 	case SECURITY_FS_USE_GENFS:
-		return selinux_is_genfs_special_handling(sb);
+		return selinux_is_genfs_special_handling(sb,
+							current_selinux_state);
 
 	/* Never allow relabeling on context mounts */
 	case SECURITY_FS_USE_MNTPOINT:
@@ -754,7 +756,7 @@ static int selinux_set_mnt_opts(struct super_block *sb,
 	    !strcmp(sb->s_type->name, "bpf") ||
 	    !strcmp(sb->s_type->name, "pstore") ||
 	    !strcmp(sb->s_type->name, "securityfs") ||
-	    (selinux_policycap_functionfs_seclabel() &&
+	    (selinux_policycap_functionfs_seclabel(current_selinux_state) &&
 	     !strcmp(sb->s_type->name, "functionfs")))
 		sbsec->flags |= SE_SBGENFS;
 
@@ -1590,7 +1592,7 @@ static int inode_doinit_with_dentry(struct inode *inode, struct dentry *opt_dent
 
 			if ((inode->i_opflags & IOP_XATTR) &&
 			    (!strcmp(sb->s_type->name, "sysfs") ||
-			     (selinux_policycap_cgroupseclabel() &&
+			     (selinux_policycap_cgroupseclabel(state) &&
 			      (!strcmp(sb->s_type->name, "cgroup") ||
 			       !strcmp(sb->s_type->name, "cgroup2"))))) {
 				rc = inode_doinit_use_xattr(state, inode,
