@@ -156,7 +156,7 @@ static int map_global_sid_to_ss(struct selinux_state *state, u32 sid,
 			u32 cached = READ_ONCE(cache->ss_sid[i]);
 
 			if (cached) {
-				*ss_sid = cache->ss_sid[i];
+				*ss_sid = cached;
 				rcu_read_unlock();
 				return 0;
 			}
