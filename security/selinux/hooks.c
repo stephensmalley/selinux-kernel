@@ -4522,7 +4522,6 @@ static int selinux_file_open(struct file *file)
 	 */
 	ad.type = LSM_AUDIT_DATA_FILE;
 	ad.u.file = file;
-	cred = file->f_cred;
 	if (unlikely(IS_PRIVATE(inode)))
 		return 0;
 	tsid = isec->sid;
