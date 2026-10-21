@@ -278,7 +278,6 @@ selinux_bpf_token_security(struct bpf_token *token)
 }
 #endif /* CONFIG_BPF_SYSCALL */
 
-
 /*
  * Caller must hold RCU read lock.
  */
