@@ -442,8 +442,10 @@ static inline void security_compute_av(struct selinux_state *state, u32 ssid,
 	selinux_ss_compute_av(state, ssid, tsid, tclass, avd, xperms);
 }
 
-void security_compute_av_user(struct selinux_state *state, u32 ssid, u32 tsid,
-			      u16 tclass, struct av_decision *avd)
+static inline void security_compute_av_user(struct selinux_state *state,
+					    u32 ssid, u32 tsid,
+					    u16 tclass,
+					    struct av_decision *avd)
 {
 	selinux_ss_compute_av_user(state, ssid, tsid, tclass, avd);
 }
