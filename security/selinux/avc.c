@@ -1516,6 +1516,11 @@ int cred_tsid_has_perm_noaudit(const struct cred *cred, u32 tsid, u16 tclass,
 		avd->auditallow |= tmp_avd.auditallow;
 		avd->auditdeny |= tmp_avd.auditdeny;
 		avd->flags &= tmp_avd.flags;
+		/*
+		 * NB avd->seqno is left with the leaf namespace's value.
+		 * TODO: Decide whether we want all callers to recheck
+		 * seqno for ancestor namespaces too.
+		 */
 
 		if (rc)
 			return rc;
